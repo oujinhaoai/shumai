@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **i18n**: Fix the "Preview unavailable" message and the Download button in the file viewer and version comparison always appearing in English instead of your selected language
+
 ### Changed
 
 - **transcode**: Optimize video sprite generation for large and long videos using a concurrent fast-seek pool and image compositing, avoiding full-video decoding while preserving instant single-pass generation for short clips

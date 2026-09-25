@@ -1,4 +1,5 @@
 import { client } from '@/ui/api/client'
+import { m } from '@/ui/paraglide/messages.js'
 import type { Annotation } from '@/ui/types'
 import type { AssetInfo } from '@shumai/dtos'
 import { useQuery } from '@tanstack/react-query'
@@ -269,7 +270,7 @@ export function CompareViewer({
     if (!ComparePane) {
       return (
         <div className="flex flex-1 items-center justify-center bg-gray-100 dark:bg-gray-950">
-          <p className="text-muted-foreground">Preview unavailable</p>
+          <p className="text-muted-foreground">{m.preview_unavailable()}</p>
         </div>
       )
     }
