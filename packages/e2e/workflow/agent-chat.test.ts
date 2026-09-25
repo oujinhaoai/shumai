@@ -210,6 +210,143 @@ describe.each(['local', 'temporal'] as const)('Workflow E2E - agentChat (executo
     expect(comments[0].creatorId).toBe(agentUser.id)
   }, 50000)
 
+  it('should anchor comment positions to lines for raw text previews', async () => {
+    // 1. Seed Database
+    const team = await prisma.team.create({
+      data: { name: 'E2E Text Chat Team' },
+    })
+
+    const project = await prisma.project.create({
+      data: { name: 'E2E Text Chat Project', teamId: team.id },
+    })
+
+    const agentUser = await prisma.user.create({
+      data: {
+        name: 'E2E Text Chat Agent User',
+        email: 'e2e-text-chat-agent@shumai.ai',
+        type: 'agent',
+      },
+    })
+
+    await prisma.teamMember.create({
+      data: { teamId: team.id, userId: agentUser.id, role: 'editor' },
+    })
+
+    const provider = await prisma.provider.create({
+      data: {
+        name: 'google',
+        teamId: team.id,
+        config: { api: 'google-generative-ai', apiKey: 'dummy-google-api-key' },
+      },
+    })
+
+    const model = await prisma.model.create({
+      data: {
+        modelId: 'gemini',
+        name: 'Gemini',
+        providerId: provider.id,
+        config: {
+          input: ['text'],
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          contextWindow: 8192,
+          maxTokens: 2048,
+          reasoning: false,
+        },
+      },
+    })
+
+    await prisma.agent.create({
+      data: {
+        id: agentUser.id,
+        teamId: team.id,
+        type: 'chat',
+        enabled: true,
+        providerId: provider.id,
+        modelId: model.id,
+        config: { provider: 'google', model: 'gemini' },
+      },
+    })
+
+    const asset = await prisma.asset.create({
+      data: {
+        name: 'release-notes.md',
+        type: 'file',
+        status: 'processed',
+        mediaType: 'text/markdown',
+        projectId: project.id,
+        media: {
+          proxyType: 'text',
+          textTranscode: { key: 'files/release-notes/proxy.txt', lineCount: 30 },
+        } as unknown as PrismaJson.MediaInfo,
+      },
+    })
+
+    const regularUser = await prisma.user.create({
+      data: { name: 'Text Reviewer', email: 'text-reviewer@example.com', type: 'human' },
+    })
+
+    await prisma.teamMember.create({
+      data: { teamId: team.id, userId: regularUser.id, role: 'owner' },
+    })
+
+    // An earlier line-anchored review comment that becomes session context
+    const reviewComment = await prisma.assetComment.create({
+      data: {
+        assetId: asset.id,
+        message: 'This step is outdated',
+        creatorId: regularUser.id,
+        second: 12,
+      },
+    })
+    await new Promise((resolve) => setTimeout(resolve, 5))
+
+    // The comment that mentions the agent, anchored to another line
+    const userComment = await prisma.assetComment.create({
+      data: {
+        assetId: asset.id,
+        message: 'Can you rewrite it?',
+        creatorId: regularUser.id,
+        second: 14,
+      },
+    })
+
+    // 2. Create Workflow Task without a session so it is initialized from the comments
+    const task = await prisma.workflowTask.create({
+      data: {
+        type: 'chat',
+        status: 'pending',
+        assetId: asset.id,
+        projectId: project.id,
+        teamId: team.id,
+        payload: {
+          projectId: project.id,
+          agent: {
+            agentId: agentUser.id,
+            userCommentId: userComment.id,
+            userId: regularUser.id,
+          },
+        },
+      },
+    })
+
+    // 3. Wait for workflow to complete
+    const completedTask = await workflowService.executeWait(task, 45000)
+
+    // 4. Verification
+    expect(completedTask.status).toBe('completed')
+
+    const reviewEntry = await prisma.agentSessionEntry.findUnique({
+      where: { id: reviewComment.id },
+    })
+    const reviewData = reviewEntry?.data as { details?: { position?: unknown } } | null
+    expect(reviewData?.details?.position).toEqual({ type: 'line', line: 12 })
+
+    const replies = await prisma.assetComment.findMany({
+      where: { assetId: asset.id, replyToId: userComment.id },
+    })
+    expect(replies[0]?.message).toBe('E2E Agent Chat Response Success')
+  }, 50000)
+
   it('should run agentChat workflow with direct prompt successfully', async () => {
     // 1. Seed Database
     const team = await prisma.team.create({

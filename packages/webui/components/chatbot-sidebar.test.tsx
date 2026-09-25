@@ -245,6 +245,45 @@ describe('ChatbotSidebar - Agent Selection & Preference Persistence', () => {
     expect(mockSelectMessage).toHaveBeenCalledWith(mockMessage)
   })
 
+  it('renders the line position of messages about raw text previews and selects them on click', async () => {
+    vi.mocked(client.api.projects[':projectId']['chat-agents'].$get).mockResolvedValue({
+      ok: true,
+      json: async () => [{ id: 'agent-1', name: 'Agent 1', type: 'chat', enabled: true }],
+    } as unknown as Awaited<
+      ReturnType<(typeof client.api.projects)[':projectId']['chat-agents']['$get']>
+    >)
+
+    const mockSelectMessage = vi.fn()
+    const mockMessage = {
+      id: 'msg-line',
+      role: 'custom',
+      customType: 'shumai_message',
+      content: 'Is this step still accurate?',
+      details: {
+        position: { type: 'line', line: 12 },
+        currentAsset: { id: 'file-md', name: 'notes.md', type: 'file', mediaType: 'text' },
+      },
+    } as unknown as ChatMessage
+
+    useChatbotStore.setState({
+      messages: [mockMessage],
+    })
+
+    const { getByText } = render(
+      <QueryClientProvider client={queryClient}>
+        <ChatbotSidebar
+          projectId="proj-1"
+          contextAssetId="file-md"
+          onSelectMessage={mockSelectMessage}
+        />
+      </QueryClientProvider>,
+    )
+
+    expect(getByText('Line 12')).toBeTruthy()
+    getByText('Is this step still accurate?').closest('div')?.click()
+    expect(mockSelectMessage).toHaveBeenCalledWith(mockMessage)
+  })
+
   it('renders selected message card with border-blue-500 instead of ring when selectedMessageId matches', async () => {
     const mockMessage = {
       id: 'msg-selected',

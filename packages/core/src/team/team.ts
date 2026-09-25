@@ -37,6 +37,7 @@ export class TeamService {
               videoStrategy: 'best_match',
               hardwareAcceleration: 'off',
               threads: 0,
+              textPreviewMode: 'pdf',
             },
           },
           sandbox: { create: {} },
@@ -310,6 +311,7 @@ export class TeamService {
         videoStrategy: 'best_match',
         hardwareAcceleration: 'off',
         threads: 0,
+        textPreviewMode: 'pdf',
       }
     }
 
@@ -350,6 +352,14 @@ export class TeamService {
       }
       settings.transcode.threads = Number(value)
       delete settings['transcode.threads']
+    } else if (key === 'transcode.textPreviewMode') {
+      if (!settings.transcode) {
+        settings.transcode = {}
+      }
+      settings.transcode.textPreviewMode = value as NonNullable<
+        TeamSettingsResponse['transcode']
+      >['textPreviewMode']
+      delete settings['transcode.textPreviewMode']
     } else if (key === 'appearance.hideAgent') {
       if (!settings.appearance) {
         settings.appearance = {}

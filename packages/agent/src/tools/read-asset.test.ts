@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createReadAssetTool, type ReadAssetAuthContext } from './read-asset'
+import { createReadAssetTool, readNumberedLines, type ReadAssetAuthContext } from './read-asset'
 import {
   prisma,
   WorkflowTaskType,
@@ -494,6 +494,169 @@ describe('readAssetTool', () => {
         '# Hello Shumai\nThis is markdown text.',
       )
       expect(result.details.key).toBe('raw/README.md')
+    })
+  })
+
+  describe('Raw Text Preview Assets', () => {
+    const textAsset = (overrides: Record<string, unknown> = {}) =>
+      ({
+        id: 'doc-text',
+        name: 'notes.md',
+        mediaType: 'text/markdown',
+        storageKey: { key: 'raw/notes.md' },
+        media: {
+          proxyType: 'text',
+          textTranscode: { key: 'files/doc-text/proxy.txt', lineCount: 4, format: 'markdown' },
+          ...overrides,
+        },
+      }) as unknown as Asset
+
+    const mockText = (text: string) =>
+      vi.mocked(s3Service.getObject).mockResolvedValue({
+        buffer: Buffer.from(text),
+        contentType: 'text/plain',
+      } as unknown as { buffer: Buffer; contentType: string })
+
+    const readText = (docConfig: Record<string, unknown>) =>
+      createReadAssetTool('user-1').execute('call-1', {
+        assetId: 'doc-text',
+        annotationId: null,
+        imageConfig: null,
+        videoConfig: null,
+        docConfig: { mode: 'text', startPage: null, endPage: null, ...docConfig },
+      } as Parameters<ReturnType<typeof createReadAssetTool>['execute']>[1])
+
+    beforeEach(() => {
+      vi.mocked(authzService.hasPermission).mockResolvedValue()
+    })
+
+    it('reads the UTF-8 text proxy with numbered lines matching comment positions', async () => {
+      vi.mocked(prisma.asset.findUnique).mockResolvedValue(textAsset())
+      mockText('# Title\n\nBody\nEnd\n')
+
+      const result = await readText({})
+
+      expect(s3Service.getObject).toHaveBeenCalledWith('shumai', 'files/doc-text/proxy.txt')
+      const text = (result.content[0] as { type: 'text'; text: string }).text
+      expect(text).toContain('lines 1-4 of 4')
+      expect(text).toContain('1\t# Title\n2\t\n3\tBody\n4\tEnd')
+      expect(text).not.toContain('Call read_asset with startLine')
+      expect(result.details).toMatchObject({
+        key: 'files/doc-text/proxy.txt',
+        startLine: 1,
+        endLine: 4,
+        totalLines: 4,
+        isTruncated: false,
+      })
+    })
+
+    it('reads a requested line range and points to the next one', async () => {
+      vi.mocked(prisma.asset.findUnique).mockResolvedValue(textAsset())
+      mockText('a\nb\nc\nd\ne')
+
+      const result = await readText({ startLine: 2, endLine: 3 })
+
+      const text = (result.content[0] as { type: 'text'; text: string }).text
+      expect(text).toContain('lines 2-3 of 5')
+      expect(text).toContain('2\tb\n3\tc')
+      expect(text).not.toContain('1\ta')
+      expect(text).toContain('Call read_asset with startLine: 4 to continue.')
+    })
+
+    it('mentions when the text proxy only holds the head of a larger file', async () => {
+      vi.mocked(prisma.asset.findUnique).mockResolvedValue(
+        textAsset({ textTranscode: { key: 'files/doc-text/proxy.txt', truncated: true } }),
+      )
+      mockText('a\nb')
+
+      const result = await readText({})
+
+      const text = (result.content[0] as { type: 'text'; text: string }).text
+      expect(text).toContain('only holds the first 2 lines of a larger file')
+      expect(result.details.isTruncated).toBe(true)
+    })
+
+    it('rejects pages mode because raw text previews have no rendered pages', async () => {
+      vi.mocked(prisma.asset.findUnique).mockResolvedValue(textAsset())
+
+      await expect(
+        createReadAssetTool('user-1').execute('call-1', {
+          assetId: 'doc-text',
+          annotationId: null,
+          imageConfig: null,
+          videoConfig: null,
+          docConfig: { mode: 'pages', startPage: 1, endPage: 1 },
+        }),
+      ).rejects.toThrow('previewed as its original text and has no rendered pages')
+      expect(prisma.workflowTask.create).not.toHaveBeenCalled()
+    })
+
+    it('rejects invalid line ranges', async () => {
+      vi.mocked(prisma.asset.findUnique).mockResolvedValue(textAsset())
+      mockText('a\nb')
+
+      await expect(readText({ startLine: 0 })).rejects.toThrow('Invalid startLine (0)')
+      await expect(readText({ startLine: 3, endLine: 2 })).rejects.toThrow(
+        'startLine (3) must be less than or equal to endLine (2)',
+      )
+      await expect(readText({ startLine: 5 })).rejects.toThrow(
+        'startLine (5) is beyond the end of the document, which has 2 lines.',
+      )
+    })
+
+    it('numbers the original text of PDF-previewed documents when a range is requested', async () => {
+      vi.mocked(prisma.asset.findUnique).mockResolvedValue({
+        id: 'doc-md',
+        name: 'README.md',
+        mediaType: 'text/markdown',
+        storageKey: { key: 'raw/README.md' },
+        media: { proxyType: 'pdf' },
+      } as unknown as Asset)
+      mockText('one\r\ntwo\r\nthree')
+
+      const result = await createReadAssetTool('user-1').execute('call-1', {
+        assetId: 'doc-md',
+        annotationId: null,
+        imageConfig: null,
+        videoConfig: null,
+        docConfig: { mode: 'text', startPage: null, endPage: null, startLine: 2, endLine: 2 },
+      })
+
+      expect(s3Service.getObject).toHaveBeenCalledWith('shumai', 'raw/README.md')
+      const text = (result.content[0] as { type: 'text'; text: string }).text
+      expect(text).toContain('2\ttwo')
+      expect(text).not.toContain('\r')
+    })
+  })
+
+  describe('readNumberedLines', () => {
+    it('handles empty documents', () => {
+      expect(readNumberedLines('', null, null)).toEqual({
+        text: '',
+        first: 1,
+        last: 0,
+        totalLines: 0,
+      })
+    })
+
+    it('caps the output at the byte limit on a line boundary', () => {
+      const line = 'x'.repeat(1000)
+      const text = Array.from({ length: 200 }, () => line).join('\n')
+
+      const range = readNumberedLines(text, null, null)
+
+      expect(range.first).toBe(1)
+      expect(range.last).toBeLessThan(200)
+      expect(range.totalLines).toBe(200)
+      expect(Buffer.byteLength(range.text, 'utf-8')).toBeLessThanOrEqual(50 * 1024)
+      expect(range.text.split('\n')).toHaveLength(range.last)
+    })
+
+    it('cuts a single oversized line', () => {
+      const range = readNumberedLines('y'.repeat(60 * 1024), null, null)
+
+      expect(range.last).toBe(1)
+      expect(range.text.endsWith('[line truncated]')).toBe(true)
     })
   })
 

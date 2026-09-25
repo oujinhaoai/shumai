@@ -51,6 +51,7 @@ declare global {
     export type VideoTranscodeStrategy = 'best_match' | 'all'
     export type HardwareAcceleration = 'off' | 'auto'
     export type HdrType = 'pq' | 'hlg' | 'dovi_p5' | 'dovi_p8' | 'sdr'
+    export type TextPreviewMode = 'pdf' | 'raw'
 
     // ----------------------------------------------------------------------
     // Collection Filter
@@ -61,6 +62,11 @@ declare global {
       videoStrategy: VideoTranscodeStrategy
       hardwareAcceleration?: HardwareAcceleration
       threads?: number
+      /**
+       * How newly uploaded Markdown/plain-text files are previewed. Defaults to
+       * 'pdf'. Only applies at upload time; existing assets keep their proxy.
+       */
+      textPreviewMode?: TextPreviewMode
     }
 
     export interface MediaProviderConfig {
@@ -165,15 +171,30 @@ declare global {
       url?: string
     }
 
+    /** UTF-8 text proxy for Markdown/plain-text files previewed as raw text. */
+    export interface TextTranscode {
+      key?: string
+      url?: string
+      /** Encoding detected in the original upload; the proxy is always UTF-8. */
+      encoding?: string
+      /** Number of lines in the text proxy. */
+      lineCount?: number
+      /** True when the original exceeded the proxy size limit and was cut. */
+      truncated?: boolean
+      /** How the preview renders the text: Markdown or plain lines. */
+      format?: 'markdown' | 'plain'
+    }
+
     export interface MediaInfo {
       duration: number
       filesize: number
       frames: number
-      proxyType?: 'image' | 'video' | 'audio' | 'pdf'
+      proxyType?: 'image' | 'video' | 'audio' | 'pdf' | 'text'
       imageTranscodes: ImageTranscode[]
       videoTranscodes: VideoTranscode[]
       videoPreview?: VideoTranscode
       pdfTranscode?: PdfTranscode
+      textTranscode?: TextTranscode
       sprite?: SpriteInfo
       poster?: PosterInfo
       thumbnail?: ImageTranscode
@@ -497,7 +518,7 @@ declare global {
       key: string
       sizeByte: number
       contentType?: string | null
-      proxyType?: 'image' | 'video' | 'audio' | 'pdf' | null
+      proxyType?: 'image' | 'video' | 'audio' | 'pdf' | 'text' | null
     }
     export type KanbanCommentAttachmentList = KanbanCommentAttachment[]
   }

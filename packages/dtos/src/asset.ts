@@ -14,7 +14,7 @@ export const assetInfoPaginatedListSchema = z.object({
 export type AssetInfoPaginatedList = z.infer<typeof assetInfoPaginatedListSchema>
 
 export const previewInfoSchema = z.object({
-  proxyType: z.enum(['image', 'video', 'audio', 'pdf']).nullable().optional(),
+  proxyType: z.enum(['image', 'video', 'audio', 'pdf', 'text']).nullable().optional(),
   thumbnailUrl: z.string().optional(),
   originalHeight: z.number().optional(),
   originalWidth: z.number().optional(),
@@ -76,7 +76,7 @@ export const assetInfoSchema = z.object({
   type: z.string(),
   targetType: z.string().optional().nullable(),
   status: z.string(),
-  proxyType: z.enum(['image', 'video', 'audio', 'pdf']).nullable().optional(),
+  proxyType: z.enum(['image', 'video', 'audio', 'pdf', 'text']).nullable().optional(),
   latestChildren: z.array(childPreviewSchema).optional(),
   preview: previewInfoSchema.nullable().optional(),
   createdAt: z.string(),
@@ -123,7 +123,17 @@ export const assetInfoSchema = z.object({
         .optional(),
       videoPreview: z.object({ url: z.string(), key: z.string().optional() }).optional(),
       pdfTranscode: z.object({ url: z.string(), key: z.string().optional() }).optional(),
-      proxyType: z.enum(['image', 'video', 'audio', 'pdf']).nullable().optional(),
+      textTranscode: z
+        .object({
+          url: z.string(),
+          key: z.string().optional(),
+          encoding: z.string().optional(),
+          lineCount: z.number().optional(),
+          truncated: z.boolean().optional(),
+          format: z.enum(['markdown', 'plain']).optional(),
+        })
+        .optional(),
+      proxyType: z.enum(['image', 'video', 'audio', 'pdf', 'text']).nullable().optional(),
       metadata: mediaMetadataSchema.optional(),
     })
     .optional(),
@@ -212,7 +222,7 @@ export const attachmentInfoSchema = z.object({
   id: z.string(),
   assetId: z.string(),
   url: z.string(),
-  proxyType: z.enum(['image', 'video', 'audio', 'pdf']).nullable().optional(),
+  proxyType: z.enum(['image', 'video', 'audio', 'pdf', 'text']).nullable().optional(),
 })
 export type AttachmentInfo = z.infer<typeof attachmentInfoSchema>
 

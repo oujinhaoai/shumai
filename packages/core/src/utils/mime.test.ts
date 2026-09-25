@@ -6,6 +6,7 @@ import {
   isHtmlDocument,
   isMarkdownDocument,
   isCsvDocument,
+  isPlainTextDocument,
 } from './mime'
 
 describe('detectSupportedMimeType', () => {
@@ -81,6 +82,25 @@ describe('document helpers', () => {
   it('isCsvDocument should correctly identify csv files', () => {
     expect(isCsvDocument('text/csv', 'data.csv')).toBe(true)
     expect(isCsvDocument(null, 'data.csv')).toBe(true)
+  })
+
+  it('isPlainTextDocument should identify markdown and plain text files', () => {
+    expect(isPlainTextDocument('text/markdown', 'README.md')).toBe(true)
+    expect(isPlainTextDocument(null, 'doc.markdown')).toBe(true)
+    expect(isPlainTextDocument('text/plain', 'notes.txt')).toBe(true)
+    expect(isPlainTextDocument(null, 'NOTES.TXT')).toBe(true)
+    expect(isPlainTextDocument('text/plain', 'server.log')).toBe(true)
+  })
+
+  it('isPlainTextDocument should exclude csv, html, office and pdf files', () => {
+    expect(isPlainTextDocument('text/csv', 'data.csv')).toBe(false)
+    expect(isPlainTextDocument('text/plain', 'data.csv')).toBe(false)
+    expect(isPlainTextDocument('text/html', 'page.html')).toBe(false)
+    expect(isPlainTextDocument('text/plain', 'index.htm')).toBe(false)
+    expect(isPlainTextDocument('application/msword', 'letter.doc')).toBe(false)
+    expect(isPlainTextDocument('text/plain', 'broken.pdf')).toBe(false)
+    expect(isPlainTextDocument('application/octet-stream', 'archive.zip')).toBe(false)
+    expect(isPlainTextDocument(null, null)).toBe(false)
   })
 })
 

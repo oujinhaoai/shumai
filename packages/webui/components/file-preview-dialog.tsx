@@ -87,7 +87,8 @@ export function FilePreviewDialog({
   const hasPlayableUrl = Boolean(
     item.media?.videoTranscodes?.some((t) => !!t.url) ||
     item.media?.imageTranscodes?.some((t) => !!t.url) ||
-    item.media?.pdfTranscode?.url,
+    item.media?.pdfTranscode?.url ||
+    item.media?.textTranscode?.url,
   )
   const fileToDisplay = detailedFile || (hasPlayableUrl ? item : null)
 

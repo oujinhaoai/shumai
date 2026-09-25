@@ -30,6 +30,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import type { MediaController } from '../viewers/types'
+import { hidesAnnotationControl } from '../viewers/registry'
 import { MobileFileBottomSheet } from './mobile-file-bottom-sheet'
 import { MobileFileHeader } from './mobile-file-header'
 
@@ -252,7 +253,7 @@ export function MobileFileDetail({
         onSaveField={onSaveField}
         members={members}
         onCommentSelect={handleCommentSelect}
-        hideAnnotationControl={file.proxyType === 'audio'}
+        hideAnnotationControl={hidesAnnotationControl(file)}
         readOnly={isPublic || !canEdit}
         publicFields={publicFields}
         isPublic={isPublic}

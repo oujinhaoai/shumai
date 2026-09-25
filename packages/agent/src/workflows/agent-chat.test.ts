@@ -736,6 +736,63 @@ describe('Agent Chat Workflow', () => {
     )
   })
 
+  it('should anchor positions to lines and report totalLines for raw text previews', async () => {
+    mockActivities.getAssetActivity.mockImplementation(async (id: string) => {
+      if (id === 'md-asset-1') {
+        return {
+          id: 'md-asset-1',
+          project: { teamId: 't1' },
+          type: 'file',
+          name: 'notes.md',
+          mediaType: 'text/markdown',
+          media: {
+            proxyType: 'text',
+            frames: 0,
+            duration: 0,
+            textTranscode: { key: 'files/md-asset-1/proxy.txt', lineCount: 120 },
+          },
+          parentId: 'f1',
+        }
+      }
+      return null
+    })
+
+    const task = await prisma.workflowTask.create({
+      data: {
+        type: 'chat',
+        status: 'pending',
+        assetId: 'md-asset-1',
+        payload: {
+          projectId: 'p1',
+          agent: {
+            prompt: 'Is this step correct?',
+            agentId: 'b1',
+            sessionId: 'session-md-1',
+            second: 42,
+          },
+        },
+      },
+    })
+
+    await agentChat(task)
+
+    expect(mockActivities.agentChatActivity).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageContext: expect.objectContaining({
+          position: { type: 'line', line: 42 },
+          currentAsset: expect.objectContaining({
+            id: 'md-asset-1',
+            mediaType: 'text',
+            mimeType: 'text/markdown',
+            totalLines: 120,
+            totalPages: undefined,
+            durationSeconds: undefined,
+          }),
+        }),
+      }),
+    )
+  })
+
   it('should include annotations and second in direct chat messageContext', async () => {
     const task = await prisma.workflowTask.create({
       data: {

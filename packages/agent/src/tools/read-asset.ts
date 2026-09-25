@@ -7,6 +7,7 @@ import { workflowService } from '@shumai/workflow-core'
 import { authzService, Permission, ResourceType } from '@shumai/core/src/authz/authz'
 import { resolveAnnotationsById } from './annotation-resolver'
 import { getFileMimeType } from '@shumai/core/src/utils/file-mime'
+import { normalizeLineEndings, splitTextLines } from '@shumai/core/src/utils/text-file'
 
 export const readAssetSchema = Type.Object(
   {
@@ -62,7 +63,7 @@ export const readAssetSchema = Type.Object(
             }),
             Type.Literal('text', {
               description:
-                'Read raw text content directly (ideal for .md, .txt, .csv, code files).',
+                'Read raw text content directly (ideal for .md, .txt, .csv, code files). Documents previewed as text (media_type "text") return numbered lines; use startLine/endLine to read a specific line range.',
             }),
           ]),
           startPage: Type.Union([
@@ -79,6 +80,24 @@ export const readAssetSchema = Type.Object(
             }),
             Type.Null(),
           ]),
+          startLine: Type.Optional(
+            Type.Union([
+              Type.Number({
+                description:
+                  'First line to read (1-based) when mode="text", e.g. around a <position type="line" /> from the context. Omit or null to start at line 1.',
+              }),
+              Type.Null(),
+            ]),
+          ),
+          endLine: Type.Optional(
+            Type.Union([
+              Type.Number({
+                description:
+                  'Last line to read (1-based, inclusive) when mode="text". Omit or null to read up to 1000 lines.',
+              }),
+              Type.Null(),
+            ]),
+          ),
         },
         {
           additionalProperties: false,
@@ -141,6 +160,56 @@ export function isPlainTextAsset(mediaType: string, filename: string): boolean {
 const MAX_TEXT_BYTES = 50 * 1024
 const MAX_TEXT_LINES = 1000
 
+export interface NumberedLines {
+  /** `<line number>\t<text>` rows, one per line. */
+  text: string
+  /** First and last line returned (1-based, inclusive); `last` is 0 for empty documents. */
+  first: number
+  last: number
+  totalLines: number
+}
+
+/**
+ * Selects a line range (at most {@link MAX_TEXT_LINES} lines and about
+ * {@link MAX_TEXT_BYTES}) and prefixes each line with its number, so agents can
+ * relate the text to line-anchored comments.
+ */
+export function readNumberedLines(
+  rawText: string,
+  startLine: number | null,
+  endLine: number | null,
+): NumberedLines {
+  const lines = splitTextLines(normalizeLineEndings(rawText))
+  const totalLines = lines.length
+  if (totalLines === 0) return { text: '', first: 1, last: 0, totalLines }
+
+  const first = startLine ?? 1
+  if (first > totalLines) {
+    throw new Error(
+      `startLine (${first}) is beyond the end of the document, which has ${totalLines} lines.`,
+    )
+  }
+  const lastAllowed = Math.min(endLine ?? totalLines, totalLines, first + MAX_TEXT_LINES - 1)
+
+  const rows: string[] = []
+  let bytes = 0
+  let last = first - 1
+  for (let n = first; n <= lastAllowed; n++) {
+    let row = `${n}\t${lines[n - 1]}`
+    let size = Buffer.byteLength(row, 'utf-8') + 1
+    if (rows.length > 0 && bytes + size > MAX_TEXT_BYTES) break
+    if (size > MAX_TEXT_BYTES) {
+      row = `${Buffer.from(row, 'utf-8').subarray(0, MAX_TEXT_BYTES).toString('utf-8')} [line truncated]`
+      size = MAX_TEXT_BYTES
+    }
+    rows.push(row)
+    bytes += size
+    last = n
+  }
+
+  return { text: rows.join('\n'), first, last, totalLines }
+}
+
 export type ReadAssetAuthContext =
   | {
       userId?: string
@@ -167,7 +236,7 @@ export function createReadAssetTool(
     label: 'Read Asset',
     description:
       'Inspects and reads the content of an asset in the workspace. ' +
-      'Supports visual analysis for images, video frame extraction, PDF page rendering, and direct text reading for text/markdown files. ' +
+      'Supports visual analysis for images, video frame extraction, PDF page rendering, and direct text reading for text/markdown files (with line numbers and line ranges for documents previewed as text). ' +
       'Pass assetId, and provide the specific config (imageConfig, videoConfig, or docConfig) while setting unused configs to null. ' +
       'Optionally provide annotationId to view visual markups drawn on the asset.',
     parameters: readAssetSchema,
@@ -461,6 +530,7 @@ export function createReadAssetTool(
       // ----------------------------------------------------------------------
       if (
         proxyType === 'pdf' ||
+        proxyType === 'text' ||
         mediaType === 'application/pdf' ||
         isPlainTextAsset(mediaType, filename)
       ) {
@@ -483,13 +553,30 @@ export function createReadAssetTool(
             )
           }
 
-          if (!isPlainTextAsset(mediaType, filename)) {
+          if (proxyType !== 'text' && !isPlainTextAsset(mediaType, filename)) {
             throw new Error(
               `Asset "${asset.name}" is a binary PDF/document and cannot be read as raw text. Please call read_asset with docConfig: { mode: "pages", startPage: 1, endPage: ... } to view its visual pages.`,
             )
           }
 
-          const mediaKey = asset.storageKey?.key
+          const startLine = docConfig.startLine ?? null
+          const endLine = docConfig.endLine ?? null
+          if (startLine !== null && (!Number.isInteger(startLine) || startLine < 1)) {
+            throw new Error(`Invalid startLine (${startLine}): it must be a 1-based line number.`)
+          }
+          if (endLine !== null && (!Number.isInteger(endLine) || endLine < 1)) {
+            throw new Error(`Invalid endLine (${endLine}): it must be a 1-based line number.`)
+          }
+          if (startLine !== null && endLine !== null && startLine > endLine) {
+            throw new Error(
+              `Invalid line range: startLine (${startLine}) must be less than or equal to endLine (${endLine}).`,
+            )
+          }
+
+          // Documents previewed as text are read from their UTF-8 text proxy, whose
+          // line numbers are the ones comments are anchored to.
+          const textProxy = proxyType === 'text' ? mediaInfo?.textTranscode : undefined
+          const mediaKey = textProxy?.key || asset.storageKey?.key
           if (!mediaKey) {
             throw new Error(`No media content found for asset ${asset.id}.`)
           }
@@ -527,6 +614,45 @@ export function createReadAssetTool(
 
           const { buffer } = await s3Service.getObject(bucket, mediaKey)
           const rawText = buffer.toString('utf-8')
+
+          if (textProxy || startLine !== null || endLine !== null) {
+            const range = readNumberedLines(rawText, startLine, endLine)
+            const notes: string[] = []
+            if (range.last < range.totalLines) {
+              notes.push(
+                `[Showing lines ${range.first}-${range.last} of ${range.totalLines}. Call read_asset with startLine: ${range.last + 1} to continue.]`,
+              )
+            }
+            if (textProxy?.truncated) {
+              notes.push(
+                `[This text preview only holds the first ${range.totalLines} lines of a larger file. Use download_asset to process the full original.]`,
+              )
+            }
+            const header =
+              range.totalLines === 0
+                ? `Document "${asset.name}" (ID: ${asset.id}, MIME: ${docMimeType}, S3 Key: "${mediaKey}") is empty.`
+                : `Document "${asset.name}" (ID: ${asset.id}, MIME: ${docMimeType}, S3 Key: "${mediaKey}"), lines ${range.first}-${range.last} of ${range.totalLines} (format: <line number><TAB><text>):`
+            const body = range.totalLines === 0 ? '' : `\n\n${range.text}`
+            const footer = notes.length > 0 ? `\n\n${notes.join('\n')}` : ''
+
+            return {
+              content: [{ type: 'text', text: `${header}${body}${footer}` }],
+              details: {
+                assetId: asset.id,
+                name: asset.name,
+                mediaType: asset.mediaType,
+                key: mediaKey,
+                downloadUrl,
+                sourceKeys: [mediaKey],
+                size: buffer.length,
+                isTruncated: range.last < range.totalLines || !!textProxy?.truncated,
+                startLine: range.first,
+                endLine: range.last,
+                totalLines: range.totalLines,
+              },
+            }
+          }
+
           let text = rawText
           let isTruncated = false
 
@@ -566,6 +692,12 @@ export function createReadAssetTool(
         }
 
         // docConfig.mode === 'pages'
+        if (proxyType === 'text') {
+          throw new Error(
+            `Asset "${asset.name}" is previewed as its original text and has no rendered pages. Call read_asset with docConfig: { mode: "text", startPage: null, endPage: null } instead; set startLine/endLine to read specific lines.`,
+          )
+        }
+
         if (docConfig.startPage === null || docConfig.endPage === null) {
           throw new Error('startPage and endPage are required when docConfig mode is "pages".')
         }

@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **settings**: Add a "Text File Preview" option to team media processing settings. Teams can keep converting new Markdown (.md) and plain-text (.txt) uploads to PDF (the default) or preview them as their original text, with Markdown rendered and a source view with line numbers. Files uploaded before the change keep their current preview
+- **webui**: Comment on Markdown and plain-text files previewed as original text by line number: pick a line (or Markdown block) before commenting, and click a comment to jump back to its line
+- **agent**: Agents see the line a comment points at in documents previewed as original text and can read those documents with line numbers and line ranges
+
 ### Fixed
 
 - **i18n**: Fix the "Preview unavailable" message and the Download button in the file viewer and version comparison always appearing in English instead of your selected language

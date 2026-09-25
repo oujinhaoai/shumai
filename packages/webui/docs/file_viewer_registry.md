@@ -5,7 +5,7 @@ The **File Viewer Registry** is a modular, type-safe system that makes it easy f
 By registering a file type, the detail pages (`FileViewer`), split-screen comparison interfaces (`CompareViewer`), and sidebars automatically adapt to the content, control schemes, and comment features of that file type.
 
 > **Display policy**: Viewers must **only ever display transcoded proxies**
-> (`imageTranscodes`, `videoTranscodes`, `pdfTranscode`). The raw original file
+> (`imageTranscodes`, `videoTranscodes`, `pdfTranscode`, `textTranscode`). The raw original file
 > (`media.original`) is **never** used as a display source — there is no fallback
 > to the original when no transcode exists. `media.original.key` is used solely
 > for the download flow (via the `download-url` API endpoints);
@@ -33,6 +33,11 @@ packages/webui/components/viewers/
 │   ├── index.tsx               # Image type definition export
 │   ├── image-viewer.tsx        
 │   └── compare-image-pane.tsx  
+├── text/                       # Raw text preview (Markdown / plain text)
+│   ├── index.tsx               # Text type definition (line-anchored comments)
+│   ├── text-viewer.tsx         # Rendered Markdown or numbered lines from `textTranscode`
+│   ├── markdown-content.tsx    # Markdown blocks tagged with their source line (`data-line`)
+│   └── text-control-bar.tsx
 └── default/                    # Fallback for unsupported types
     ├── index.tsx
     └── default-viewer.tsx

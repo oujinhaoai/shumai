@@ -1,4 +1,4 @@
-import type { Browser, BrowserContext } from '@playwright/test'
+import type { APIRequestContext, Browser, BrowserContext } from '@playwright/test'
 import type { PrismaClient } from '../../../../packages/db/src/generated/prisma/client'
 import { E2E_APP_URL, E2E_PASSWORD, apiSignup, injectAuthState, uniqueEmail } from './auth'
 
@@ -118,4 +118,16 @@ export async function seedProjectMember(
     data: { projectId, teamMemberId: tm.id, role },
   })
   return { userId: user.id, email, teamMemberId: tm.id, projectMemberId: pm.id }
+}
+
+/** Updates a team setting (e.g. `transcode.textPreviewMode`) through the API. */
+export async function apiUpdateTeamSettings(
+  request: APIRequestContext,
+  teamId: string,
+  setting: { key: string; value: unknown },
+): Promise<void> {
+  const res = await request.patch(`/api/teams/${teamId}/settings`, { data: setting })
+  if (!res.ok()) {
+    throw new Error(`Update team settings API failed (${res.status()}): ${await res.text()}`)
+  }
 }

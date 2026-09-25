@@ -2,11 +2,13 @@ import { metadataService } from '@shumai/core/src/metadata/metadata'
 import { s3Service } from '@shumai/core/src/s3/s3'
 import { prisma } from '@shumai/db'
 import { setupTestDbHooks } from '@shumai/db/test'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { gotenbergService } from '@shumai/core/src/gotenberg/gotenberg'
 import { transcodeService } from '@shumai/core/src/transcode/transcode'
 import * as child_process from 'child_process'
 import * as fs from 'fs'
+import * as os from 'os'
+import * as path from 'path'
 
 vi.mock('child_process', () => ({
   execFile: vi.fn(),
@@ -24,6 +26,8 @@ import {
   extractPosterActivity,
   generateSpriteActivity,
   generatePdfProxyActivity,
+  generateTextProxyActivity,
+  MAX_TEXT_PROXY_BYTES,
   transcodeVideoChunkActivity,
   deleteS3ObjectActivity,
   createAutofillTaskIfEnabledActivity,
@@ -295,6 +299,151 @@ describe('Transcode Activities', () => {
       ]),
       true,
     )
+  })
+
+  it('should set file_type to document and proxy_type to text for raw text previews', async () => {
+    const asset = await prisma.asset.create({
+      data: { name: 'notes.md', type: 'file', status: 'uploaded' },
+    })
+
+    const result = await getMediaInfoActivity({
+      assetId: asset.id,
+      filePath: '/tmp/proxy.txt',
+      proxyType: 'text',
+      mediaType: 'text/markdown',
+    })
+
+    expect(result.proxyType).toBe('text')
+    expect(result.frames).toBe(0)
+    expect(result.metadata).toBeNull()
+    expect(transcodeService.getPdfInfo).not.toHaveBeenCalled()
+    expect(metadataService.updateAssetMetadata).toHaveBeenCalledWith(
+      asset.id,
+      [
+        { key: 'file_type', value: 'document' },
+        { key: 'proxy_type', value: 'text' },
+      ],
+      true,
+    )
+  })
+
+  describe('generateTextProxyActivity', () => {
+    let tmpDir: string
+
+    beforeEach(async () => {
+      const actualFs = await vi.importActual<typeof import('fs')>('fs')
+      tmpDir = actualFs.mkdtempSync(path.join(os.tmpdir(), 'text-proxy-test-'))
+      // Let the text proxy read real files from the temp dir.
+      vi.mocked(fs.readFileSync).mockImplementation(actualFs.readFileSync as never)
+      vi.mocked(fs.statSync).mockImplementation(actualFs.statSync as never)
+    })
+
+    afterEach(async () => {
+      const actualFs = await vi.importActual<typeof import('fs')>('fs')
+      actualFs.rmSync(tmpDir, { recursive: true, force: true })
+      vi.mocked(fs.readFileSync).mockImplementation(() => Buffer.from('fake data') as never)
+      vi.mocked(fs.statSync).mockReturnValue({ size: 9 } as never)
+    })
+
+    async function writeSource(name: string, content: Uint8Array | string): Promise<string> {
+      const actualFs = await vi.importActual<typeof import('fs')>('fs')
+      const filePath = path.join(tmpDir, name)
+      actualFs.writeFileSync(filePath, content)
+      return filePath
+    }
+
+    it('should store a UTF-8 proxy with LF line endings next to the asset', async () => {
+      const filePath = await writeSource('notes.md', '# Title\r\n\r\nBody line\r\n')
+
+      const res = await generateTextProxyActivity({
+        assetId: 'asset1',
+        assetKey: 'files/asset1/notes.md',
+        filePath,
+        mediaType: 'text/markdown',
+        filename: 'notes.md',
+      })
+
+      expect(res).toEqual({
+        textProxyKey: 'files/asset1/proxy.txt',
+        textFilePath: path.join(tmpDir, 'proxy.txt'),
+        encoding: 'utf-8',
+        lineCount: 3,
+        truncated: false,
+        format: 'markdown',
+      })
+      const expected = Buffer.from('# Title\n\nBody line\n', 'utf-8')
+      expect(s3Service.putObject).toHaveBeenCalledWith(
+        'shumai',
+        'files/asset1/proxy.txt',
+        expected,
+        expected.length,
+        'text/plain; charset=utf-8',
+      )
+      const actualFs = await vi.importActual<typeof import('fs')>('fs')
+      expect(actualFs.readFileSync(res.textFilePath, 'utf-8')).toBe('# Title\n\nBody line\n')
+    })
+
+    it('should convert GBK text to UTF-8', async () => {
+      // "你好\n世界" encoded as GBK
+      const filePath = await writeSource(
+        'gbk.txt',
+        new Uint8Array([0xc4, 0xe3, 0xba, 0xc3, 0x0a, 0xca, 0xc0, 0xbd, 0xe7]),
+      )
+
+      const res = await generateTextProxyActivity({
+        assetId: 'asset2',
+        assetKey: 'files/asset2/gbk.txt',
+        filePath,
+        mediaType: 'text/plain',
+        filename: 'gbk.txt',
+      })
+
+      expect(res.encoding).toBe('gb18030')
+      expect(res.lineCount).toBe(2)
+      expect(res.format).toBe('plain')
+      const expected = Buffer.from('你好\n世界', 'utf-8')
+      expect(s3Service.putObject).toHaveBeenCalledWith(
+        'shumai',
+        'files/asset2/proxy.txt',
+        expected,
+        expected.length,
+        'text/plain; charset=utf-8',
+      )
+    })
+
+    it('should cap oversized files at the proxy size limit', async () => {
+      const line = 'x'.repeat(1023) + '\n'
+      const filePath = await writeSource(
+        'big.txt',
+        line.repeat(Math.ceil(MAX_TEXT_PROXY_BYTES / line.length) + 10),
+      )
+
+      const res = await generateTextProxyActivity({
+        assetId: 'asset3',
+        assetKey: 'files/asset3/big.txt',
+        filePath,
+      })
+
+      expect(res.truncated).toBe(true)
+      expect(res.lineCount).toBe(Math.floor(MAX_TEXT_PROXY_BYTES / line.length))
+      const [, , body, size] = vi.mocked(s3Service.putObject).mock.calls[0]
+      expect(size).toBeLessThanOrEqual(MAX_TEXT_PROXY_BYTES)
+      expect((body as Buffer).length).toBe(size)
+    })
+
+    it('should throw a non-retryable failure when the source cannot be read', async () => {
+      await expect(
+        generateTextProxyActivity({
+          assetId: 'asset4',
+          assetKey: 'files/asset4/missing.txt',
+          filePath: path.join(tmpDir, 'missing.txt'),
+        }),
+      ).rejects.toMatchObject({
+        message: expect.stringContaining('Failed to generate text proxy'),
+        nonRetryable: true,
+      })
+      expect(s3Service.putObject).not.toHaveBeenCalled()
+    })
   })
 
   it('should set file_type to document for pdf/text files', async () => {

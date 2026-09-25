@@ -2,6 +2,7 @@ import type { WorkflowTask } from '@shumai/db'
 import { transcodeVideoWorkflow } from './transcode-video'
 import { transcodeImageWorkflow } from './transcode-image'
 import { transcodePdfWorkflow } from './transcode-pdf'
+import { transcodeTextWorkflow } from './transcode-text'
 import { renderPdfPagesWorkflow } from './render-pdf-pages'
 import { takeVideoScreenshotsWorkflow } from './take-video-screenshots'
 import { overlayImageAnnotationWorkflow } from './overlay-image-annotation'
@@ -10,7 +11,8 @@ import { transcodeWatermarkWorkflow } from './transcode-watermark'
 /**
  * @deprecated Legacy monolithic transcode workflow. Prefer using focused workflows:
  * `transcodeVideoWorkflow`, `transcodeImageWorkflow`, `transcodePdfWorkflow`,
- * `renderPdfPagesWorkflow`, `takeVideoScreenshotsWorkflow`, or `overlayImageAnnotationWorkflow`.
+ * `transcodeTextWorkflow`, `renderPdfPagesWorkflow`, `takeVideoScreenshotsWorkflow`, or
+ * `overlayImageAnnotationWorkflow`.
  */
 export async function transcodeMedia(task: WorkflowTask): Promise<void> {
   const payload = task.payload
@@ -32,6 +34,9 @@ export async function transcodeMedia(task: WorkflowTask): Promise<void> {
   if (task.type === 'transcode_pdf') {
     return transcodePdfWorkflow(task)
   }
+  if (task.type === 'transcode_text') {
+    return transcodeTextWorkflow(task)
+  }
   return transcodeVideoWorkflow(task)
 }
 
@@ -43,6 +48,7 @@ export const transcodeWorkflow = transcodeMedia
 export * from './transcode-video'
 export * from './transcode-image'
 export * from './transcode-pdf'
+export * from './transcode-text'
 export * from './render-pdf-pages'
 export * from './take-video-screenshots'
 export * from './overlay-image-annotation'
