@@ -1903,6 +1903,40 @@ describe('AssetService', () => {
       expect(info.preview?.duration).toBe(262)
     })
 
+    it('presigns the text proxy url for raw text previews', async () => {
+      const { project, user } = await setupBasicAssets()
+
+      const doc = await prisma.asset.create({
+        data: {
+          name: 'notes.md',
+          type: AssetType.file,
+          projectId: project.id,
+          creatorId: user.id,
+          sizeByte: 42,
+          mediaType: 'text/markdown',
+          status: 'processed',
+          media: {
+            proxyType: 'text',
+            textTranscode: { key: 'files/doc/proxy.txt', lineCount: 3, encoding: 'utf-8' },
+            metadata: null,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          } as any,
+        },
+      })
+
+      const info = await assetService.getAsset({ assetId: doc.id })
+
+      expect(info.proxyType).toBe('text')
+      expect(info.media?.textTranscode).toEqual({
+        key: 'files/doc/proxy.txt',
+        lineCount: 3,
+        encoding: 'utf-8',
+        url: 'http://mock-s3-url',
+      })
+      expect(info.preview?.proxyType).toBe('text')
+      expect(info.preview?.pageCount).toBeUndefined()
+    })
+
     it('toPreviewInfo omits duration for images', async () => {
       const { project, user } = await setupBasicAssets()
 

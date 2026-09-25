@@ -7,6 +7,7 @@ import {
 } from '@shumai/core/src/transcode/transcode'
 import { metadataService } from '@shumai/core/src/metadata/metadata'
 import { getDerivedArtifactDirectory, stemFromKey } from '@shumai/core/src/utils/filename'
+import { countTextLines, readTextFileHead } from '@shumai/core/src/utils/text-file'
 import { gotenbergService } from '@shumai/core/src/gotenberg/gotenberg'
 import { parseCsvContent } from '@shumai/core/src/transcode/transcode'
 import {
@@ -82,7 +83,7 @@ async function ensureAssetNotPurging(assetKey: string): Promise<void> {
 export async function getMediaInfoActivity(params: {
   filePath: string
   assetId: string
-  proxyType?: 'image' | 'video' | 'audio' | 'pdf' | null
+  proxyType?: 'image' | 'video' | 'audio' | 'pdf' | 'text' | null
   mediaType?: string
 }): Promise<PrismaJson.MediaInfo> {
   try {
@@ -92,6 +93,7 @@ export async function getMediaInfoActivity(params: {
     const isImage = proxyType === 'image'
     const isAudio = proxyType === 'audio'
     const isPdf = proxyType === 'pdf'
+    const isText = proxyType === 'text'
 
     const fileType = isVideo
       ? 'video'
@@ -99,7 +101,7 @@ export async function getMediaInfoActivity(params: {
         ? 'audio'
         : isImage
           ? 'image'
-          : isPdf
+          : isPdf || isText
             ? 'document'
             : 'file'
 
@@ -758,6 +760,72 @@ export async function generatePdfProxyActivity(
     const { message } = getErrorDetails(err)
     throw ApplicationFailure.create({
       message: `Failed to generate PDF proxy: ${message}`,
+      nonRetryable: true,
+      cause: err instanceof Error ? err : undefined,
+    })
+  }
+}
+
+/** Largest text proxy (in bytes) kept for raw text previews; longer files are cut at a line break. */
+export const MAX_TEXT_PROXY_BYTES = 5 * 1024 * 1024
+
+export interface GenerateTextProxyActivityParams {
+  assetId: string
+  assetKey: string
+  filePath: string
+  mediaType?: string
+  filename?: string
+}
+
+export interface GenerateTextProxyActivityResult {
+  textProxyKey: string
+  textFilePath: string
+  encoding: string
+  lineCount: number
+  truncated: boolean
+  format: 'markdown' | 'plain'
+}
+
+/**
+ * Builds the UTF-8 text proxy used by the raw text preview: decodes the upload
+ * (UTF-8, UTF-16 with BOM, or GB18030), normalizes line endings to LF so line
+ * numbers match everywhere, caps the size, and stores it next to the asset.
+ */
+export async function generateTextProxyActivity(
+  params: GenerateTextProxyActivityParams,
+): Promise<GenerateTextProxyActivityResult> {
+  const bucket = process.env.S3_BUCKET || 'shumai'
+  const assetDir = getDerivedArtifactDirectory(params.assetKey, params.assetId)
+  const textProxyKey = `${assetDir}/proxy.txt`
+  const textFilePath = path.join(path.dirname(params.filePath), 'proxy.txt')
+
+  try {
+    const { text, encoding, truncated } = readTextFileHead(params.filePath, MAX_TEXT_PROXY_BYTES)
+    const content = Buffer.from(text, 'utf-8')
+    fs.writeFileSync(textFilePath, content)
+
+    await ensureAssetNotPurging(params.assetKey)
+    await s3Service.putObject(
+      bucket,
+      textProxyKey,
+      content,
+      content.length,
+      'text/plain; charset=utf-8',
+    )
+
+    return {
+      textProxyKey,
+      textFilePath,
+      encoding,
+      lineCount: countTextLines(text),
+      truncated,
+      format: isMarkdownDocument(params.mediaType, params.filename) ? 'markdown' : 'plain',
+    }
+  } catch (err) {
+    if (err instanceof ApplicationFailure) throw err
+    const { message } = getErrorDetails(err)
+    throw ApplicationFailure.create({
+      message: `Failed to generate text proxy: ${message}`,
       nonRetryable: true,
       cause: err instanceof Error ? err : undefined,
     })

@@ -16,6 +16,7 @@ import {
 } from './helpers/auth'
 import { apiCreateProject, uniqueProjectName } from './helpers/project'
 import { apiUploadFile } from './helpers/files'
+import { apiUpdateTeamSettings } from './helpers/team'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const envPath = path.resolve(currentDir, '.env.e2e')
@@ -55,11 +56,16 @@ export interface ProjectFixture extends OwnerFixture {
 }
 
 /** The media kind of a seeded test file. */
-export type FileMediaType = 'text' | 'binary' | 'image' | 'video' | 'pdf' | 'audio'
+export type FileMediaType = 'text' | 'markdown' | 'binary' | 'image' | 'video' | 'pdf' | 'audio'
 
 export interface FileFixtureOptions {
   /** Defaults to `binary` (no extension, never transcoded, no proxy). */
   mediaType?: FileMediaType
+  /**
+   * Team `transcode.textPreviewMode` applied before the upload. Leave unset to keep
+   * the default (`pdf`); `raw` previews Markdown/plain text as original text.
+   */
+  textPreviewMode?: 'pdf' | 'raw'
 }
 
 export interface FileFixture extends ProjectFixture {
@@ -70,6 +76,7 @@ export interface FileFixture extends ProjectFixture {
 
 const FILE_TYPE_MAP: Record<FileMediaType, { ext: string; mime: string }> = {
   text: { ext: 'txt', mime: 'text/plain' },
+  markdown: { ext: 'md', mime: 'text/markdown' },
   binary: { ext: '', mime: 'application/octet-stream' },
   image: { ext: 'png', mime: 'image/png' },
   video: { ext: 'mp4', mime: 'video/mp4' },
@@ -90,6 +97,21 @@ function getFileBuffer(mediaType: FileMediaType): Buffer {
     case 'text':
       return Buffer.from(
         'Sample text content for PDF proxy transcode test.\nSecond line of text content.',
+      )
+    case 'markdown':
+      return Buffer.from(
+        [
+          '# Release Notes',
+          '',
+          'Intro paragraph for the raw text preview test.',
+          '',
+          '- First item',
+          '- Second item',
+          '',
+          '```',
+          'code line',
+          '```',
+        ].join('\n'),
       )
     case 'binary':
     default:
@@ -180,6 +202,13 @@ export const test = base.extend<{
     const { ext, mime } = FILE_TYPE_MAP[mediaType]
     const fileName = `test-file-${Date.now()}${ext ? `.${ext}` : ''}`
     const buffer = getFileBuffer(mediaType)
+
+    if (fileOptions.textPreviewMode) {
+      await apiUpdateTeamSettings(project.context.request, project.teamId, {
+        key: 'transcode.textPreviewMode',
+        value: fileOptions.textPreviewMode,
+      })
+    }
 
     const uploaded = await apiUploadFile(
       project.context.request,

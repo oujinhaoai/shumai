@@ -289,6 +289,8 @@ export function ChatbotSidebar({
             }
           } else if (position?.type === 'page') {
             timeStr = m.page_prefix({ page: position.page })
+          } else if (position?.type === 'line') {
+            timeStr = m.line_prefix({ line: position.line })
           }
           const messageText = getMessageText(msgObj.content)
           const hasAttachmentsOrAssets = attachedFiles.length > 0 || referencedAssets.length > 0
@@ -788,7 +790,11 @@ export function ChatbotSidebar({
               markupDisabledTooltip={
                 !file ? m.open_file_to_add_markup() : m.markup_not_supported_for_this_file()
               }
-              allowTimestamp={file?.proxyType === 'video' || file?.proxyType === 'pdf'}
+              allowTimestamp={
+                file?.proxyType === 'video' ||
+                file?.proxyType === 'pdf' ||
+                file?.proxyType === 'text'
+              }
               currentTime={currentTime}
               frameRate={frameRate || file?.media?.metadata?.frameRate || 30}
               startTimecode={startTimecode || file?.media?.metadata?.startTimecode}
@@ -796,7 +802,9 @@ export function ChatbotSidebar({
                 formatTimestamp ||
                 (file?.proxyType === 'pdf'
                   ? (sec: number) => m.page_prefix({ page: Math.round(sec) })
-                  : undefined)
+                  : file?.proxyType === 'text'
+                    ? (sec: number) => m.line_prefix({ line: Math.round(sec) })
+                    : undefined)
               }
               onTyping={onTyping}
               onSendMessage={(

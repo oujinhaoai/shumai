@@ -29,6 +29,17 @@ Team Owners can select how the transcoding engine handles uploaded files. Shumai
 
 ---
 
+## Text File Preview
+
+Team Owners can choose how newly uploaded Markdown (`.md`, `.markdown`) and plain-text (`.txt`) files are previewed and commented on:
+
+- **Convert to PDF** (default): the file is converted into a PDF proxy (see [Document PDF Conversion](/using-shumai/gotenberg)). Comments are anchored to pages and support drawing annotations.
+- **Original text**: the file is previewed as its original text. Markdown is rendered, with a **Source** view that shows the raw text with line numbers. Comments are anchored to line numbers; drawing annotations are not available. Text in legacy encodings such as GBK is converted to UTF-8 for the preview.
+
+The setting only applies to files uploaded after it changes: existing files keep the preview they were processed with. CSV, HTML, and Office documents are always converted to PDF.
+
+---
+
 ## Processing Architecture
 
 Transcoding is resource-intensive. Depending on your scaling needs, your administrator can run the transcode engine on the main server (Single-Server mode) or delegate tasks to specialized transcoding worker machines (Temporal Worker mode).

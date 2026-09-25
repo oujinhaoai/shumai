@@ -153,6 +153,27 @@ describe('serializeContextToXml', () => {
       expect(serializeContextToXml(context)).toBe(expected)
     })
 
+    it('serializes raw text context with total_lines and position.type === "line"', () => {
+      const context: ShumaiMessageContext = {
+        currentAsset: {
+          id: 'md_1',
+          name: 'notes.md',
+          type: 'file',
+          mediaType: 'text',
+          mimeType: 'text/markdown',
+          totalLines: 120,
+        },
+        position: { type: 'line', line: 42.4 },
+      }
+
+      const expected = `<context>
+  <current_asset id="md_1" name="notes.md" type="file" media_type="text" mime_type="text/markdown" total_lines="120" />
+  <position type="line" line="42" />
+</context>`
+
+      expect(serializeContextToXml(context)).toBe(expected)
+    })
+
     it('serializes Video context with total_frames and duration_seconds', () => {
       const context: ShumaiMessageContext = {
         currentAsset: {

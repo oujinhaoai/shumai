@@ -20,6 +20,8 @@ describe.each(['local', 'temporal'] as const)(
 
     let agentWorkerPromise: Promise<void> | null = null
     let transcodeWorkerPromise: Promise<void> | null = null
+    let lastPromptText = ''
+    let lastReadResultText = ''
 
     beforeAll(async () => {
       // Set bucket environment
@@ -48,19 +50,31 @@ describe.each(['local', 'temporal'] as const)(
         expect(autofillTool).toBeDefined()
 
         const promptText = typeof args[0] === 'string' ? args[0] : ''
+        lastPromptText = promptText
         const assetIdMatch = promptText.match(/ID:\s*"([^"]+)"/)
 
         if (readAssetTool && assetIdMatch) {
           const assetId = assetIdMatch[1]
+          // Follow the prompt's inspection advice for documents previewed as text.
+          const readParams = promptText.includes('previewed as its original text')
+            ? {
+                assetId,
+                annotationId: null,
+                imageConfig: null,
+                videoConfig: null,
+                docConfig: { mode: 'text', startPage: null, endPage: null },
+              }
+            : { assetId }
           const readResult = await readAssetTool.execute(
             'call-read-1',
-            { assetId },
+            readParams,
             undefined,
             undefined,
             undefined,
           )
           expect(readResult).toBeDefined()
           expect(readResult.content).toBeDefined()
+          lastReadResultText = readResult.content[0]?.text ?? ''
         }
 
         if (autofillTool) {
@@ -126,8 +140,7 @@ describe.each(['local', 'temporal'] as const)(
       }
     })
 
-    it('should run agentAutofillMedia workflow and update asset metadata successfully', async () => {
-      // 1. Seed Database Models
+    async function seedAutofillAgent() {
       const team = await prisma.team.create({
         data: { name: 'E2E Test Team' },
       })
@@ -240,6 +253,13 @@ describe.each(['local', 'temporal'] as const)(
           },
         },
       })
+
+      return { team, project, agent }
+    }
+
+    it('should run agentAutofillMedia workflow and update asset metadata successfully', async () => {
+      // 1. Seed Database Models
+      const { team, project, agent } = await seedAutofillAgent()
 
       // Create StorageKey first
       const storageKey = await prisma.storageKey.create({
@@ -356,6 +376,67 @@ describe.each(['local', 'temporal'] as const)(
         },
       })
       expect(manualNotesVal).toBeNull()
+    }, 50000)
+
+    it('should autofill a raw text preview by reading its numbered text proxy', async () => {
+      const { team, project, agent } = await seedAutofillAgent()
+
+      const storageKey = await prisma.storageKey.create({
+        data: { key: `projects/e2e/${mode}/brief.md` },
+      })
+      const proxyKey = `projects/e2e/${mode}/proxy.txt`
+      const asset = await prisma.asset.create({
+        data: {
+          name: 'brief.md',
+          type: 'file',
+          status: 'processed',
+          mediaType: 'text/markdown',
+          media: {
+            proxyType: 'text',
+            textTranscode: { key: proxyKey, lineCount: 2, format: 'markdown' },
+          } as unknown as PrismaJson.MediaInfo,
+          projectId: project.id,
+          storageKeyId: storageKey.id,
+        },
+      })
+
+      const proxy = Buffer.from('# Campaign brief\nDeliver by Friday\n', 'utf-8')
+      await s3Service.putObject(
+        'shumai-e2e-test-bucket',
+        proxyKey,
+        proxy,
+        proxy.length,
+        'text/plain',
+      )
+
+      const task = await prisma.workflowTask.create({
+        data: {
+          type: 'ai_metadata_autofill',
+          status: 'pending',
+          assetId: asset.id,
+          projectId: project.id,
+          teamId: team.id,
+          payload: {
+            projectId: project.id,
+            agent: { sessionId: 'mock-session-text', agentId: agent.id },
+          },
+        },
+      })
+
+      const completedTask = await workflowService.executeWait(task, 45000)
+
+      expect(completedTask.status).toBe('completed')
+      expect(lastPromptText).toContain('Text document with 2 lines, previewed as its original text')
+      expect(lastReadResultText).toContain('lines 1-2 of 2')
+      expect(lastReadResultText).toContain('1\t# Campaign brief\n2\tDeliver by Friday')
+
+      const titleVal = await prisma.assetMetadataValue.findUnique({
+        where: {
+          // eslint-disable-next-line @typescript-eslint/naming-convention
+          assetId_fieldKey: { assetId: asset.id, fieldKey: 'title' },
+        },
+      })
+      expect(titleVal?.stringValue).toBe('E2E Title Extracted')
     }, 50000)
   },
 )

@@ -134,3 +134,33 @@ export class PdfTranscoder {
     return task.id
   }
 }
+
+/**
+ * Submits a `transcode_text` task that prepares a UTF-8 text proxy for
+ * Markdown/plain-text uploads previewed as their original text.
+ */
+export class TextTranscoder {
+  constructor(
+    private readonly db: TransactionClient,
+    private readonly assetId: string,
+    private readonly teamId: string,
+    private readonly projectId: string,
+  ) {}
+
+  async submit(): Promise<string> {
+    const task = await this.db.workflowTask.create({
+      data: {
+        assetId: this.assetId,
+        teamId: this.teamId,
+        projectId: this.projectId,
+        type: WorkflowTaskType.transcode_text,
+        status: WorkflowTaskStatus.pending,
+        payload: {
+          projectId: this.projectId,
+          transcode: {},
+        },
+      },
+    })
+    return task.id
+  }
+}

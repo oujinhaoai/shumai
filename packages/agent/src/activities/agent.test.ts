@@ -591,6 +591,62 @@ describe('Agent Activities', () => {
     )
   })
 
+  it('should recommend text mode for raw text previews in autofillAiActivity', async () => {
+    const mockHarness = {
+      subscribe: vi.fn(),
+      prompt: vi.fn().mockResolvedValue({
+        content: [{ type: 'text', text: 'Captured' }],
+        usage: { input: 5, output: 5 },
+      }),
+    }
+    const mockSession = {
+      getEntries: vi.fn().mockResolvedValue([]),
+      getStorage: vi.fn().mockReturnValue({ sessionId: 'mock-session-id' }),
+    }
+
+    vi.mocked(piAgent.createAgentSession).mockImplementation(async (config: unknown) => {
+      const params = config as {
+        customTools: Array<{
+          name: string
+          execute: (id: string, args: Record<string, unknown>) => Promise<unknown>
+        }>
+      }
+      const tool = params.customTools.find((t) => t.name === 'autofill_metadata')
+      if (tool) {
+        await tool.execute('1', { f1: 'val' })
+      }
+      return {
+        session: mockSession as unknown as Session<DatabaseSessionMetadata>,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Mock AgentHarness instance for activity test
+        harness: mockHarness as unknown as AgentHarness<any, any, any, any>,
+      }
+    })
+
+    const context = {
+      agent: { id: 'b1', provider: { name: 'google' }, modelRef: { modelId: 'gemini' } },
+      dbProviders: [],
+      teamSkills: [],
+      allowedDomains: [],
+    } as unknown as AgentExecutionContext
+
+    await autofillAiActivity({
+      teamId: 't1',
+      assetId: 'md-1',
+      assetName: 'notes.md',
+      mediaType: 'text/markdown',
+      proxyType: 'text',
+      lineCount: 87,
+      images: [],
+      fields: [{ id: 'f1', config: { name: 'F1', type: 'text' } }],
+      context,
+    })
+
+    const prompt = mockHarness.prompt.mock.calls[0]?.[0] ?? ''
+    expect(prompt).toContain('Text document with 87 lines, previewed as its original text')
+    expect(prompt).toContain('docConfig: { mode: "text", startPage: null, endPage: null }')
+    expect(prompt).not.toContain('Document pages')
+  })
+
   it('should ignore inappropriate mediaType recommendations in autofillAiActivity', async () => {
     const mockHarness = {
       subscribe: vi.fn(),
@@ -799,6 +855,50 @@ describe('Agent Database Activities Integration', () => {
           mimeType: 'application/pdf',
         },
       ])
+    })
+
+    it('should store line positions for comments on raw text previews', async () => {
+      const textAsset = await prisma.asset.create({
+        data: {
+          name: 'notes.md',
+          type: AssetType.file,
+          mediaType: 'text/markdown',
+          status: AssetStatus.processed,
+          projectId: project.id,
+          media: {
+            proxyType: 'text',
+            textTranscode: { key: 'files/notes/proxy.txt', lineCount: 30 },
+          } as unknown as PrismaJson.MediaInfo,
+        },
+      })
+
+      await prisma.assetComment.create({
+        data: {
+          assetId: textAsset.id,
+          message: 'Typo on this line',
+          creatorId: user.id,
+          second: 12,
+        },
+      })
+      await sleep(2)
+      const userComment = await prisma.assetComment.create({
+        data: { assetId: textAsset.id, message: 'Can you fix it?', creatorId: user.id },
+      })
+
+      const sessionId = await initializeAgentSessionActivity({
+        teamId: team.id,
+        agentId: 'test-agent-id',
+        userCommentId: userComment.id,
+        userId: user.id,
+      })
+
+      const agentSession = await prisma.agentSession.findUnique({ where: { id: sessionId } })
+      const storage = new DatabaseSessionStorage(sessionId)
+      const pathEntries = await storage.getPathToRoot(agentSession!.leafId)
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- entry data is stored as Json in DB and needs casting to check properties
+      const lineEntry = pathEntries.find((e: any) => e.content === 'Typo on this line') as any
+      expect(lineEntry?.details.position).toEqual({ type: 'line', line: 12 })
     })
 
     it('should distinguish Main Session (userCommentId: null) and Thread Session (userCommentId: rootId) during lazy sync', async () => {

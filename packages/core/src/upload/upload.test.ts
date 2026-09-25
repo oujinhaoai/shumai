@@ -446,6 +446,106 @@ describe('UploadService', () => {
     expect(workflowTask).toBeNull()
   })
 
+  describe('text preview mode', () => {
+    async function setTextPreviewMode(mode: 'pdf' | 'raw') {
+      await prisma.team.update({
+        where: { id: teamId },
+        data: {
+          settings: {
+            transcode: { videoStrategy: 'best_match', textPreviewMode: mode },
+          },
+        },
+      })
+    }
+
+    async function uploadFile(name: string, mediaType: string, media?: PrismaJson.MediaInfo) {
+      const task = await prisma.task.create({
+        data: { creatorId: userId, total: 1, uploaded: 0, type: 'upload' },
+      })
+      const asset = await prisma.asset.create({
+        data: {
+          name,
+          type: AssetType.file,
+          project: { connect: { id: projectId } },
+          parent: { connect: { id: parentId } },
+          status: AssetStatus.uploading,
+          storageKey: {
+            connectOrCreate: {
+              where: { key: `test-key-${name}` },
+              create: { key: `test-key-${name}` },
+            },
+          },
+          mediaType,
+          ...(media ? { media } : {}),
+        },
+      })
+      await uploadService.confirmFileUpload(userId, task.id, { fileId: asset.id })
+      return asset
+    }
+
+    async function taskTypesFor(assetId: string) {
+      const tasks = await prisma.workflowTask.findMany({ where: { assetId } })
+      return tasks.map((t) => t.type)
+    }
+
+    it('should create transcode_text for Markdown when the team uses raw text preview', async () => {
+      await setTextPreviewMode('raw')
+      const asset = await uploadFile('notes.md', 'text/markdown')
+
+      const types = await taskTypesFor(asset.id)
+      expect(types).toContain(WorkflowTaskType.transcode_text)
+      expect(types).not.toContain(WorkflowTaskType.transcode_pdf)
+
+      const workflowTask = await prisma.workflowTask.findFirst({
+        where: { assetId: asset.id, type: WorkflowTaskType.transcode_text },
+      })
+      expect(workflowTask?.payload).toEqual({ projectId, transcode: {} })
+    })
+
+    it('should create transcode_text for plain text when the team uses raw text preview', async () => {
+      await setTextPreviewMode('raw')
+      const asset = await uploadFile('readme.txt', 'text/plain')
+
+      const types = await taskTypesFor(asset.id)
+      expect(types).toContain(WorkflowTaskType.transcode_text)
+      expect(types).not.toContain(WorkflowTaskType.transcode_pdf)
+    })
+
+    it('should keep converting Markdown to PDF when the setting is unset or pdf', async () => {
+      const unset = await uploadFile('unset.md', 'text/markdown')
+      expect(await taskTypesFor(unset.id)).toEqual([WorkflowTaskType.transcode_pdf])
+
+      await setTextPreviewMode('pdf')
+      const pdfMode = await uploadFile('pdf-mode.txt', 'text/plain')
+      expect(await taskTypesFor(pdfMode.id)).toEqual([WorkflowTaskType.transcode_pdf])
+    })
+
+    it('should keep converting CSV to PDF even in raw text preview mode', async () => {
+      await setTextPreviewMode('raw')
+      const asset = await uploadFile('table.csv', 'text/csv')
+
+      expect(await taskTypesFor(asset.id)).toEqual([WorkflowTaskType.transcode_pdf])
+    })
+
+    it('should keep a persisted pdf proxy type even in raw text preview mode', async () => {
+      await setTextPreviewMode('raw')
+      const asset = await uploadFile('legacy.md', 'text/markdown', {
+        proxyType: 'pdf',
+      } as PrismaJson.MediaInfo)
+
+      expect(await taskTypesFor(asset.id)).toEqual([WorkflowTaskType.transcode_pdf])
+    })
+
+    it('should keep a persisted text proxy type even after switching back to pdf', async () => {
+      await setTextPreviewMode('pdf')
+      const asset = await uploadFile('raw.md', 'text/markdown', {
+        proxyType: 'text',
+      } as PrismaJson.MediaInfo)
+
+      expect(await taskTypesFor(asset.id)).toEqual([WorkflowTaskType.transcode_text])
+    })
+  })
+
   it('should confirm file upload and resolve empty mediaType using Bun resolver for audio', async () => {
     const task = await prisma.task.create({
       data: { creatorId: userId, total: 1, uploaded: 0, type: 'upload' },

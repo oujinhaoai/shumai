@@ -80,6 +80,16 @@ export const HardwareAcceleration = {
 } as const
 export type HardwareAcceleration = (typeof HardwareAcceleration)[keyof typeof HardwareAcceleration]
 
+/**
+ * How newly uploaded Markdown and plain-text files are previewed: converted to a
+ * PDF proxy (`pdf`, the default) or shown as their original text (`raw`).
+ */
+export const TextPreviewMode = {
+  pdf: 'pdf',
+  raw: 'raw',
+} as const
+export type TextPreviewMode = (typeof TextPreviewMode)[keyof typeof TextPreviewMode]
+
 export const updateTeamSettingsRequestSchema = z.union([
   z.object({
     key: z.literal('transcode.videoStrategy'),
@@ -92,6 +102,10 @@ export const updateTeamSettingsRequestSchema = z.union([
   z.object({
     key: z.literal('transcode.threads'),
     value: z.number().int().min(0).max(32),
+  }),
+  z.object({
+    key: z.literal('transcode.textPreviewMode'),
+    value: z.nativeEnum(TextPreviewMode),
   }),
   z.object({
     key: z.literal('appearance.hideAgent'),
@@ -109,6 +123,7 @@ export interface TeamSettingsResponse {
     videoStrategy?: VideoTranscodeStrategy
     hardwareAcceleration?: HardwareAcceleration
     threads?: number
+    textPreviewMode?: TextPreviewMode
   }
   appearance?: TeamAppearanceSettings
   semanticSearchEnabled?: boolean

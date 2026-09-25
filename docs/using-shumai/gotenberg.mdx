@@ -80,3 +80,9 @@ If Gotenberg is not configured or unreachable, Shumai degrades gracefully:
 
 - **Office documents and HTML**: the upload completes as `processed` without a PDF proxy.
 - **CSV, Markdown, and TXT**: a lightweight built-in PDF generator produces the proxy instead, with reduced fidelity.
+
+<Tip>
+  Markdown and TXT files can also skip PDF conversion entirely: set **Text File Preview** to
+  **Original text** in [Media Transcoding Settings](/using-shumai/transcode-settings) to preview
+  them as their original text with line-numbered comments.
+</Tip>

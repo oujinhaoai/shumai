@@ -1,13 +1,13 @@
-import { File, Folder, AudioLines } from 'lucide-react'
+import { File, FileText, Folder, AudioLines } from 'lucide-react'
 import { SpriteScrubber } from '../sprite-scrubber'
 import { formatTime } from '../viewers/video/utils'
 
 type FilePreviewItem = {
   type?: string | null
-  proxyType?: 'image' | 'video' | 'audio' | 'pdf' | null
+  proxyType?: 'image' | 'video' | 'audio' | 'pdf' | 'text' | null
   preview?: {
     mediaType?: string | null
-    proxyType?: 'image' | 'video' | 'audio' | 'pdf' | null
+    proxyType?: 'image' | 'video' | 'audio' | 'pdf' | 'text' | null
     spriteUrl?: string
     thumbnailUrl?: string
     originalWidth?: number
@@ -84,6 +84,14 @@ export const FilePreview = ({ item, showDuration = false }: FilePreviewProps) =>
         </div>
         {overlay}
       </>
+    )
+  }
+
+  if (proxyType === 'text') {
+    return (
+      <div className="w-full h-full flex items-center justify-center">
+        <FileText data-testid="text-file-icon" className="w-8 h-8 text-primary/60" />
+      </div>
     )
   }
 

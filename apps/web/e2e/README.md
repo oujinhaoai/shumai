@@ -15,7 +15,7 @@ apps/web/e2e/
 │   ├── auth.ts          # signup / auth-state injection helpers
 │   ├── project.ts       # project creation helpers
 │   ├── files.ts         # share link API helpers
-│   ├── team.ts          # team member seeding helpers
+│   ├── team.ts          # team member seeding and team settings helpers
 │   └── ui.ts            # common UI flows (signup, login, members dialog)
 └── tests/<domain>/      # domain-scoped specs (auth, team, project)
 ```
@@ -38,12 +38,19 @@ apps/web/e2e/
 
   // type-scoped file for future viewer/transcode tests
   test('...', { fileOptions: { mediaType: 'image' } }, async ({ file }) => {})
+
+  // Markdown/plain text previewed as original text instead of a PDF proxy
+  test.use({ fileOptions: { mediaType: 'markdown', textPreviewMode: 'raw' } })
   ```
+
+  `textPreviewMode` sets the team's `transcode.textPreviewMode` through the API before
+  the upload (unset keeps the default `pdf`).
 
   | mediaType | filename | notes |
   |---|---|---|
   | `binary` (default) | `test-file-<ts>` | never transcoded, no proxy |
-  | `text` | `test-file-<ts>.txt` | gets a PDF proxy in real usage |
+  | `text` | `test-file-<ts>.txt` | PDF proxy by default; text proxy with `textPreviewMode: 'raw'` |
+  | `markdown` | `test-file-<ts>.md` | PDF proxy by default; text proxy with `textPreviewMode: 'raw'` |
   | `image` | `test-file-<ts>.png` | |
   | `video` | `test-file-<ts>.mp4` | |
   | `pdf` | `test-file-<ts>.pdf` | |
@@ -66,6 +73,7 @@ apps/web/e2e/
 | Owner removes a member via the members dialog; the membership is deleted from the DB | `tests/team/remove-member.spec.ts` |
 | Owner changes a team member role in the members dialog and permissions update | `tests/team/change-member-role.spec.ts` |
 | Owner manages resource quotas in settings and resets usage from the dashboard | `tests/team/quotas-settings.spec.ts` |
+| Owner switches text file preview to original text in transcode settings | `tests/team/text-preview-setting.spec.ts` |
 
 ### project
 | Test | File |
@@ -102,6 +110,8 @@ apps/web/e2e/
 |---|---|
 | Create a comment on a binary file | `tests/file/binary-comment.spec.ts` |
 | Upload a txt file, wait for transcode, and create a comment with draw | `tests/file/txt-draw-comment.spec.ts` |
+| Preview a txt file as original text, comment on a selected line, and jump back to it from the comment | `tests/file/txt-raw-preview-comment.spec.ts` |
+| Preview a Markdown file rendered with source line anchors and switch to the source view | `tests/file/md-raw-preview.spec.ts` |
 | Upload an image file, wait for transcode, and create a comment with draw | `tests/file/image-draw-comment.spec.ts` |
 | Upload a video file, wait for transcode, and create a comment with draw at a non-zero timestamp | `tests/file/video-draw-comment.spec.ts` |
 | Upload an audio file, wait for transcode, and create a comment at a non-zero timestamp | `tests/file/audio-timestamp-comment.spec.ts` |

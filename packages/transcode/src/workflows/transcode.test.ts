@@ -29,6 +29,26 @@ describe('transcodeMedia Fallback Dispatcher', () => {
     renderPdfPagesActivity: Object.assign(vi.fn(), {
       _activityName: 'renderPdfPagesActivity',
     }),
+    downloadMediaToTmpActivity: Object.assign(vi.fn(), {
+      _activityName: 'downloadMediaToTmpActivity',
+    }),
+    generateTextProxyActivity: Object.assign(vi.fn(), {
+      _activityName: 'generateTextProxyActivity',
+    }),
+    generatePdfProxyActivity: Object.assign(vi.fn(), {
+      _activityName: 'generatePdfProxyActivity',
+    }),
+    getMediaInfoActivity: Object.assign(vi.fn(), { _activityName: 'getMediaInfoActivity' }),
+    updateAssetMediaActivity: Object.assign(vi.fn(), {
+      _activityName: 'updateAssetMediaActivity',
+    }),
+    createEmbeddingTaskIfEnabledActivity: Object.assign(vi.fn(), {
+      _activityName: 'createEmbeddingTaskIfEnabledActivity',
+    }),
+    createAutofillTaskIfEnabledActivity: Object.assign(vi.fn(), {
+      _activityName: 'createAutofillTaskIfEnabledActivity',
+    }),
+    cleanupTmpDirActivity: Object.assign(vi.fn(), { _activityName: 'cleanupTmpDirActivity' }),
   }
 
   beforeEach(() => {
@@ -86,6 +106,50 @@ describe('transcodeMedia Fallback Dispatcher', () => {
     await transcodeMedia(task)
 
     expect(mockActivities.renderPdfPagesActivity).toHaveBeenCalled()
+  })
+
+  it('should dispatch transcode_text tasks to the text workflow', async () => {
+    const task: WorkflowTask = {
+      id: 'task-text',
+      assetId: 'asset-md',
+      type: WorkflowTaskType.transcode_text,
+      status: WorkflowTaskStatus.pending,
+      payload: { projectId: 'proj-1', transcode: {} },
+      output: null,
+      sessionId: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      heartbeat: null,
+      teamId: 'team-1',
+      projectId: 'proj-1',
+      uid: 'task-uid-text',
+      model: null,
+      inputTokens: 0,
+      outputTokens: 0,
+    }
+
+    mockActivities.getAssetActivity.mockResolvedValue({
+      id: 'asset-md',
+      storageKey: { key: 'files/asset-md/notes.md' },
+      mediaType: 'text/markdown',
+    })
+    mockActivities.downloadMediaToTmpActivity.mockResolvedValue({
+      filePath: '/tmp/t/notes.md',
+      tmpDir: '/tmp/t',
+    })
+    mockActivities.generateTextProxyActivity.mockResolvedValue({
+      textProxyKey: 'files/asset-md/proxy.txt',
+      textFilePath: '/tmp/t/proxy.txt',
+      encoding: 'utf-8',
+      lineCount: 1,
+      truncated: false,
+    })
+    mockActivities.getMediaInfoActivity.mockResolvedValue({ proxyType: 'text' })
+
+    await transcodeMedia(task)
+
+    expect(mockActivities.generateTextProxyActivity).toHaveBeenCalled()
+    expect(mockActivities.generatePdfProxyActivity).not.toHaveBeenCalled()
   })
 
   it('should handle failures and update task status with error', async () => {

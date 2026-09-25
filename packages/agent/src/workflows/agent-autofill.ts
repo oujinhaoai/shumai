@@ -91,13 +91,20 @@ export async function agentAutofillMedia(task: WorkflowTask): Promise<void> {
             : undefined
         : undefined
 
+    const lineCount =
+      proxyType === 'text' && typeof mediaInfo?.textTranscode?.lineCount === 'number'
+        ? mediaInfo.textTranscode.lineCount
+        : undefined
+
     const aiResult = await executeActivity(agentWorkerQueue, autofillAiActivity, {
       teamId,
       assetId: asset.id,
       assetName: asset.name,
       mediaType: asset.mediaType ?? undefined,
+      proxyType,
       duration,
       pageCount,
+      lineCount,
       projectId: asset.projectId ?? undefined,
       fields: fields.map(
         (f: { key: string; config: Record<string, unknown>; description?: string | null }) => ({

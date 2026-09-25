@@ -57,6 +57,7 @@ import { metadataService } from '@shumai/core/src/metadata/metadata'
 import { uploadService } from '@shumai/core/src/upload/upload'
 import path from 'path'
 import { stemFromKey } from '@shumai/core/src/utils/filename'
+import type { ProxyType } from '@shumai/core/src/utils/mime'
 
 export const assetInclude = {
   creator: true,
@@ -1675,6 +1676,7 @@ export class AssetService {
                 WorkflowTaskType.transcode_image,
                 WorkflowTaskType.transcode_pdf,
                 WorkflowTaskType.transcode_pdf_pages,
+                WorkflowTaskType.transcode_text,
                 WorkflowTaskType.transcode_screenshot,
                 WorkflowTaskType.transcode_image_annotation,
                 WorkflowTaskType.transcode_watermark,
@@ -2386,6 +2388,13 @@ export class AssetService {
           'GET',
         )
       }
+      if (media && media.textTranscode?.key) {
+        media.textTranscode.url = await s3Service.presign(
+          process.env.S3_BUCKET || 'shumai',
+          media.textTranscode.key,
+          'GET',
+        )
+      }
 
       const key = latestVersion.storageKey?.key
       if (key) {
@@ -2403,7 +2412,7 @@ export class AssetService {
         }
       }
 
-      const proxyType = (media?.proxyType || null) as 'image' | 'video' | 'audio' | 'pdf' | null
+      const proxyType = (media?.proxyType || null) as ProxyType | null
 
       result.push({
         id: a.id,
@@ -2769,7 +2778,7 @@ export class AssetService {
   ): Promise<PreviewInfo | null> {
     if (!asset.media) return null
 
-    const proxyType = (asset.media?.proxyType || null) as 'image' | 'video' | 'audio' | 'pdf' | null
+    const proxyType = (asset.media?.proxyType || null) as ProxyType | null
 
     let rawThumbKey: string | undefined
     if (proxyType === 'image' && asset.media.thumbnail?.key) {
@@ -2847,12 +2856,7 @@ export class AssetService {
             a.asset.storageKey.key,
             'GET',
           )
-          const attachmentProxyType = (a.asset.media?.proxyType || null) as
-            | 'image'
-            | 'video'
-            | 'audio'
-            | 'pdf'
-            | null
+          const attachmentProxyType = (a.asset.media?.proxyType || null) as ProxyType | null
           attachments.push({
             id: a.id,
             assetId: a.asset.id,

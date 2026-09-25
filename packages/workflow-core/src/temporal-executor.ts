@@ -54,6 +54,10 @@ export class TemporalExecutor implements Executor {
         workflowName = 'renderPdfPagesWorkflow'
         taskQueue = TaskQueueTranscode
         break
+      case WorkflowTaskType.transcode_text:
+        workflowName = 'transcodeTextWorkflow'
+        taskQueue = TaskQueueTranscode
+        break
       case WorkflowTaskType.transcode_screenshot:
         workflowName = 'takeVideoScreenshotsWorkflow'
         taskQueue = TaskQueueTranscode
