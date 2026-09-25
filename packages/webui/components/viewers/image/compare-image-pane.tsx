@@ -2,6 +2,7 @@ import { client } from '@/ui/api/client'
 import DrawingCanvas from '@/ui/components/drawing-canvas'
 import { useScreenSize } from '@/ui/hooks/useScreenSize'
 import { getBestTranscode } from '@/ui/lib/media'
+import { m } from '@/ui/paraglide/messages.js'
 import { useAnnotationStore } from '@/ui/stores/annotation-store'
 import type { Annotation } from '@/ui/types'
 import type { AssetInfo } from '@shumai/dtos'
@@ -182,7 +183,7 @@ export const CompareImagePane = forwardRef<ComparePaneHandle, CompareImagePanePr
     if (!bestUrl) {
       return (
         <div className="flex flex-1 items-center justify-center bg-gray-100 dark:bg-gray-950">
-          <p className="text-muted-foreground">Preview unavailable</p>
+          <p className="text-muted-foreground">{m.preview_unavailable()}</p>
         </div>
       )
     }

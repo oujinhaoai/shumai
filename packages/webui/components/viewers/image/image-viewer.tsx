@@ -1,6 +1,7 @@
 import { useScreenSize } from '@/ui/hooks/useScreenSize'
 import { client } from '@/ui/api/client'
 import { getBestTranscode } from '@/ui/lib/media'
+import { m } from '@/ui/paraglide/messages.js'
 import React, { useEffect, useRef, useState, useImperativeHandle } from 'react'
 import DrawingCanvas from '@/ui/components/drawing-canvas'
 import { ImageControlBar } from './image-control-bar'
@@ -202,7 +203,7 @@ export const ImageViewer = React.forwardRef<MediaController, FileViewerProps>(
               />
             ) : (
               <div className="flex h-full w-full items-center justify-center">
-                <p className="text-muted-foreground">Preview unavailable</p>
+                <p className="text-muted-foreground">{m.preview_unavailable()}</p>
               </div>
             )}
           </div>
