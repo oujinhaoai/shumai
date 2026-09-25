@@ -31,12 +31,26 @@ Team Owners can select how the transcoding engine handles uploaded files. Shumai
 
 ## Text File Preview
 
-Team Owners can choose how newly uploaded Markdown (`.md`, `.markdown`) and plain-text (`.txt`) files are previewed and commented on:
+Team Owners can choose how newly uploaded Markdown (`.md`, `.markdown`), plain-text (`.txt`), and code and config files are previewed and commented on:
 
-- **Convert to PDF** (default): the file is converted into a PDF proxy (see [Document PDF Conversion](/using-shumai/gotenberg)). Comments are anchored to pages and support drawing annotations.
-- **Original text**: the file is previewed as its original text. Markdown is rendered, with a **Source** view that shows the raw text with line numbers. Comments are anchored to line numbers; drawing annotations are not available. Text in legacy encodings such as GBK is converted to UTF-8 for the preview.
+- **Convert to PDF** (default): Markdown and plain-text files are converted into a PDF proxy (see [Document PDF Conversion](/using-shumai/gotenberg)). Comments are anchored to pages and support drawing annotations. Code and config files are not previewed in this mode; they can still be downloaded.
+- **Original text**: the file is previewed as its original text. Markdown is rendered, with a **Source** view that shows the raw text with line numbers. Plain-text, code and config files are shown exactly as written, never reformatted, with line numbers that match the lines of the file. Comments are anchored to line numbers; drawing annotations are not available. Text in legacy encodings such as GBK is converted to UTF-8 for the preview.
 
 The setting only applies to files uploaded after it changes: existing files keep the preview they were processed with. CSV, HTML, and Office documents are always converted to PDF.
+
+### Code and Config Files
+
+With **Original text**, the following file types are previewed as text, whatever file type the browser or the CLI reports for them:
+
+| Kind                   | Extensions                                                                                          |
+| ---------------------- | --------------------------------------------------------------------------------------------------- |
+| Data and configuration | `.json`, `.jsonl`, `.yaml`, `.yml`, `.toml`, `.ini`, `.cfg`, `.conf`, `.properties`, `.xml`, `.log` |
+| Code and scripts       | `.py`, `.js`, `.mjs`, `.cjs`, `.jsx`, `.sh`, `.bash`, `.sql`, `.css`                                |
+| Subtitles              | `.srt`, `.vtt`                                                                                      |
+
+- `.ts` and `.mts` files are not on the list because these extensions are also used for video (MPEG transport streams and AVCHD camera clips), and `.env` files are not on the list because they usually contain secrets.
+- A file that contains binary data rather than text (for example a renamed archive) is not shown as text: it finishes processing without a preview.
+- Files larger than 5 MB are previewed up to their first 5 MB; download the original to see the rest.
 
 ---
 

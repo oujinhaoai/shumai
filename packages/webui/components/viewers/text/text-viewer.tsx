@@ -56,9 +56,10 @@ function isElementVisible(el: HTMLElement, viewport: HTMLElement): boolean {
 }
 
 /**
- * Previews Markdown and plain-text files from their UTF-8 text proxy. Comments
- * are anchored to 1-based source line numbers, stored in the comment's `second`
- * field the same way PDF comments store page numbers.
+ * Previews Markdown, plain-text, code and config files from their UTF-8 text proxy.
+ * Only Markdown gets a rendered view; everything else is shown exactly as written,
+ * with line numbers. Comments are anchored to 1-based source line numbers, stored in
+ * the comment's `second` field the same way PDF comments store page numbers.
  */
 export const TextViewer = React.forwardRef<MediaController, FileViewerProps>(
   ({ file, shareId, children, onPlay, onPause, onTimeUpdate, startTime, allowDownload }, ref) => {

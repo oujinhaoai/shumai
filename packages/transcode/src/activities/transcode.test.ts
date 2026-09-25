@@ -27,6 +27,8 @@ import {
   generateSpriteActivity,
   generatePdfProxyActivity,
   generateTextProxyActivity,
+  type GenerateTextProxyActivityResult,
+  type TextProxyResult,
   MAX_TEXT_PROXY_BYTES,
   transcodeVideoChunkActivity,
   deleteS3ObjectActivity,
@@ -345,6 +347,12 @@ describe('Transcode Activities', () => {
       vi.mocked(fs.statSync).mockReturnValue({ size: 9 } as never)
     })
 
+    /** Narrows an activity result to a stored text proxy, failing the test otherwise. */
+    function asTextProxy(res: GenerateTextProxyActivityResult): TextProxyResult {
+      if ('binary' in res) throw new Error('Expected a text proxy, got a binary source')
+      return res
+    }
+
     async function writeSource(name: string, content: Uint8Array | string): Promise<string> {
       const actualFs = await vi.importActual<typeof import('fs')>('fs')
       const filePath = path.join(tmpDir, name)
@@ -355,13 +363,15 @@ describe('Transcode Activities', () => {
     it('should store a UTF-8 proxy with LF line endings next to the asset', async () => {
       const filePath = await writeSource('notes.md', '# Title\r\n\r\nBody line\r\n')
 
-      const res = await generateTextProxyActivity({
-        assetId: 'asset1',
-        assetKey: 'files/asset1/notes.md',
-        filePath,
-        mediaType: 'text/markdown',
-        filename: 'notes.md',
-      })
+      const res = asTextProxy(
+        await generateTextProxyActivity({
+          assetId: 'asset1',
+          assetKey: 'files/asset1/notes.md',
+          filePath,
+          mediaType: 'text/markdown',
+          filename: 'notes.md',
+        }),
+      )
 
       expect(res).toEqual({
         textProxyKey: 'files/asset1/proxy.txt',
@@ -390,13 +400,15 @@ describe('Transcode Activities', () => {
         new Uint8Array([0xc4, 0xe3, 0xba, 0xc3, 0x0a, 0xca, 0xc0, 0xbd, 0xe7]),
       )
 
-      const res = await generateTextProxyActivity({
-        assetId: 'asset2',
-        assetKey: 'files/asset2/gbk.txt',
-        filePath,
-        mediaType: 'text/plain',
-        filename: 'gbk.txt',
-      })
+      const res = asTextProxy(
+        await generateTextProxyActivity({
+          assetId: 'asset2',
+          assetKey: 'files/asset2/gbk.txt',
+          filePath,
+          mediaType: 'text/plain',
+          filename: 'gbk.txt',
+        }),
+      )
 
       expect(res.encoding).toBe('gb18030')
       expect(res.lineCount).toBe(2)
@@ -418,17 +430,112 @@ describe('Transcode Activities', () => {
         line.repeat(Math.ceil(MAX_TEXT_PROXY_BYTES / line.length) + 10),
       )
 
-      const res = await generateTextProxyActivity({
-        assetId: 'asset3',
-        assetKey: 'files/asset3/big.txt',
-        filePath,
-      })
+      const res = asTextProxy(
+        await generateTextProxyActivity({
+          assetId: 'asset3',
+          assetKey: 'files/asset3/big.txt',
+          filePath,
+        }),
+      )
 
       expect(res.truncated).toBe(true)
       expect(res.lineCount).toBe(Math.floor(MAX_TEXT_PROXY_BYTES / line.length))
       const [, , body, size] = vi.mocked(s3Service.putObject).mock.calls[0]
       expect(size).toBeLessThanOrEqual(MAX_TEXT_PROXY_BYTES)
       expect((body as Buffer).length).toBe(size)
+    })
+
+    it('should keep a code file exactly as written, without reformatting it', async () => {
+      const json = '{"name":"shumai","tags":["a","b"],"nested":{"z":1,"a":[1,2]}}\n'
+      const filePath = await writeSource('config.json', json)
+
+      const res = await generateTextProxyActivity({
+        assetId: 'asset5',
+        assetKey: 'files/asset5/config.json',
+        filePath,
+        mediaType: 'application/json;charset=utf-8',
+        filename: 'config.json',
+      })
+
+      expect(res).toEqual({
+        textProxyKey: 'files/asset5/proxy.txt',
+        textFilePath: path.join(tmpDir, 'proxy.txt'),
+        encoding: 'utf-8',
+        lineCount: 1,
+        truncated: false,
+        format: 'plain',
+      })
+      const expected = Buffer.from(json, 'utf-8')
+      expect(s3Service.putObject).toHaveBeenCalledWith(
+        'shumai',
+        'files/asset5/proxy.txt',
+        expected,
+        expected.length,
+        'text/plain; charset=utf-8',
+      )
+    })
+
+    it('should keep the lines and indentation of a script, only normalizing line endings', async () => {
+      const script = 'def main():\r\n\tif True:\r\n        print("hi")  # keep   \r\n\r\nmain()\r\n'
+      const filePath = await writeSource('tool.py', script)
+
+      const res = await generateTextProxyActivity({
+        assetId: 'asset6',
+        assetKey: 'files/asset6/tool.py',
+        filePath,
+        mediaType: 'application/octet-stream',
+        filename: 'tool.py',
+      })
+
+      expect(res).toMatchObject({ lineCount: 5, truncated: false, format: 'plain' })
+      const [, , body] = vi.mocked(s3Service.putObject).mock.calls[0]
+      const lines = (body as Buffer).toString('utf-8').split('\n')
+      expect(lines.slice(0, 5)).toEqual([
+        'def main():',
+        '\tif True:',
+        '        print("hi")  # keep   ',
+        '',
+        'main()',
+      ])
+    })
+
+    it('should store no proxy for a file containing NUL bytes', async () => {
+      const filePath = await writeSource(
+        'server.log',
+        new Uint8Array([0x6f, 0x6b, 0x0a, 0x00, 0x01, 0x02, 0x0a, 0x64, 0x6f, 0x6e, 0x65]),
+      )
+
+      const res = await generateTextProxyActivity({
+        assetId: 'asset7',
+        assetKey: 'files/asset7/server.log',
+        filePath,
+        mediaType: 'text/plain;charset=utf-8',
+        filename: 'server.log',
+      })
+
+      expect(res).toEqual({ binary: true })
+      expect(s3Service.putObject).not.toHaveBeenCalled()
+      const actualFs = await vi.importActual<typeof import('fs')>('fs')
+      expect(actualFs.existsSync(path.join(tmpDir, 'proxy.txt'))).toBe(false)
+    })
+
+    it('should detect binary data that is not valid UTF-8 either', async () => {
+      // A PNG header: invalid UTF-8, so it goes through the GB18030 fallback.
+      const filePath = await writeSource(
+        'image.json',
+        new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d]),
+      )
+
+      const res = await generateTextProxyActivity({
+        assetId: 'asset8',
+        assetKey: 'files/asset8/image.json',
+        filePath,
+        mediaType: 'application/json',
+        filename: 'image.json',
+      })
+
+      expect(res).toEqual({ binary: true })
+      expect(s3Service.putObject).not.toHaveBeenCalled()
     })
 
     it('should throw a non-retryable failure when the source cannot be read', async () => {
@@ -707,6 +814,35 @@ describe('Transcode Activities', () => {
     expect(res.pdfProxyKey).toBe('files/asset1/proxy.pdf')
     expect(generatePdfFromTextSpy).toHaveBeenCalledWith(
       '/tmp/notes.txt',
+      expect.stringContaining('proxy.pdf'),
+    )
+    generatePdfFromTextSpy.mockRestore()
+  })
+
+  it('should convert text/plain files to PDF even when the media type has parameters', async () => {
+    const asset = await prisma.asset.create({
+      data: { name: 'README', type: 'file', status: 'uploaded' },
+    })
+
+    vi.spyOn(gotenbergService, 'isAvailable').mockResolvedValue(false)
+    const generatePdfFromTextSpy = vi
+      .spyOn(transcodeService, 'generatePdfFromText')
+      .mockImplementation(async (_inPath, outPath) => {
+        const fs = await import('fs')
+        fs.writeFileSync(outPath, 'fake pdf from charset text')
+      })
+
+    const res = await generatePdfProxyActivity({
+      assetId: asset.id,
+      assetKey: 'files/asset1/README',
+      filePath: '/tmp/README',
+      mediaType: 'text/plain; charset=utf-8',
+      filename: 'README',
+    })
+
+    expect(res.pdfProxyKey).toBe('files/asset1/proxy.pdf')
+    expect(generatePdfFromTextSpy).toHaveBeenCalledWith(
+      '/tmp/README',
       expect.stringContaining('proxy.pdf'),
     )
     generatePdfFromTextSpy.mockRestore()

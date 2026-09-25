@@ -11,14 +11,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **settings**: Add a "Text File Preview" option to team media processing settings. Teams can keep converting new Markdown (.md) and plain-text (.txt) uploads to PDF (the default) or preview them as their original text, with Markdown rendered and a source view with line numbers. Files uploaded before the change keep their current preview
 - **webui**: Comment on Markdown and plain-text files previewed as original text by line number: pick a line (or Markdown block) before commenting, and click a comment to jump back to its line
 - **agent**: Agents see the line a comment points at in documents previewed as original text and can read those documents with line numbers and line ranges
+- **transcode**: Preview code and config files as their original text. When a team uses the "Original text" option for text file preview, newly uploaded code, config, log and subtitle files (such as .json, .yaml, .toml, .ini, .conf, .xml, .log, .py, .js, .sh, .sql, .css, .srt and .vtt) are shown exactly as written, with line numbers, instead of having no preview. .ts, .mts and .env files are not included
+- **webui**: Comment on code and config files line by line, the same way as Markdown and plain-text files previewed as original text
 
 ### Fixed
 
 - **i18n**: Fix the "Preview unavailable" message and the Download button in the file viewer and version comparison always appearing in English instead of your selected language
+- **transcode**: Fix files whose type includes extra details, such as `text/plain; charset=utf-8` from some upload tools, not being recognized as the Markdown, text, CSV, HTML, PDF or Office files they are, which left them without the right preview
+- **transcode**: Fix text files that actually contain binary data being shown as garbled text in the original text preview; they now finish processing without a preview instead
 
 ### Changed
 
 - **transcode**: Improve video poster selection using intelligent scene detection and color variance filtering to automatically skip black frames, fade-ins, and blank intros in favor of representative video content
+- **transcode**: With the default "Convert to PDF" text preview, code and config files such as .log, .ini and .conf are no longer converted to PDF when the browser reports them as plain text, so every code and config file is handled the same way; switch to "Original text" to preview them with line numbers
 - **transcode**: Optimize video sprite generation for large and long videos using a concurrent fast-seek pool and image compositing, avoiding full-video decoding while preserving instant single-pass generation for short clips
 - **webui**: Make the file viewer's background, thumbnail strip, and bottom toolbar follow the app's light and dark theme colors, so images, PDFs, and files without a preview match the rest of the app; in dark mode the viewing area is now a neutral dark gray instead of a bluish near-black
 

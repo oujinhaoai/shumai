@@ -23,7 +23,7 @@ import {
   getProxyType,
   isHtmlDocument,
   isOfficeDocument,
-  isPlainTextDocument,
+  supportsRawTextPreview,
 } from '@shumai/core/src/utils/mime'
 import { logger } from '@shumai/core/src/logger'
 
@@ -320,8 +320,16 @@ export class UploadService {
     })
     if (!team) throw new Error('Team not found')
 
+    const settings = team.settings as PrismaJson.Settings | null
     const persistedProxyType = (asset.media as PrismaJson.MediaInfo | null)?.proxyType
-    const proxyType = persistedProxyType || getProxyType(asset.mediaType, asset.name)
+    // Raw text preview is decided once, for files without a persisted proxy type,
+    // so switching the team setting never changes existing files.
+    const textPreviewMode = settings?.transcode?.textPreviewMode ?? 'pdf'
+    const usesRawTextPreview =
+      textPreviewMode === 'raw' && supportsRawTextPreview(asset.mediaType, asset.name)
+    const proxyType =
+      persistedProxyType ||
+      (usesRawTextPreview ? 'text' : getProxyType(asset.mediaType, asset.name))
 
     const isVideo = proxyType === 'video'
     const isImage = proxyType === 'image'
@@ -335,7 +343,6 @@ export class UploadService {
         data: { status: AssetStatus.processed },
       })
     } else {
-      const settings = team.settings as PrismaJson.Settings | null
       const threads = settings?.transcode?.threads ?? 0
       if (isVideo) {
         const strategy = settings?.transcode?.videoStrategy || 'best_match'
@@ -360,19 +367,6 @@ export class UploadService {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await new TextTranscoder(tx as any, asset.id, team.id, projectId).submit()
       } else if (isPdf) {
-        // Raw text preview is decided once, for files without a persisted proxy
-        // type, so switching the team setting never changes existing files.
-        const textPreviewMode = settings?.transcode?.textPreviewMode ?? 'pdf'
-        if (
-          !persistedProxyType &&
-          textPreviewMode === 'raw' &&
-          isPlainTextDocument(asset.mediaType, asset.name)
-        ) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await new TextTranscoder(tx as any, asset.id, team.id, projectId).submit()
-          return
-        }
-
         const isOffice = isOfficeDocument(asset.mediaType, asset.name)
         const isHtml = isHtmlDocument(asset.mediaType, asset.name)
 

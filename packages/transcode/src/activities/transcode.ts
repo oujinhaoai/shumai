@@ -12,6 +12,7 @@ import {
   isHtmlDocument,
   isMarkdownDocument,
   isOfficeDocument,
+  isTxtDocument,
 } from '@shumai/core/src/utils/mime'
 import { logger } from '@shumai/core/src/logger'
 import { ApplicationFailure, Context } from '@temporalio/activity'
@@ -670,7 +671,7 @@ export async function generatePdfProxyActivity(
   const isHtml = isHtmlDocument(params.mediaType, params.filename)
   const isMd = isMarkdownDocument(params.mediaType, params.filename)
   const isCsv = isCsvDocument(params.mediaType, params.filename)
-  const isTxt = params.mediaType === 'text/plain' || params.filename.toLowerCase().endsWith('.txt')
+  const isTxt = isTxtDocument(params.mediaType, params.filename)
 
   if (!isOffice && !isHtml && !isMd && !isCsv && !isTxt) {
     return { pdfProxyKey: params.assetKey, pdfFilePath: params.filePath }
@@ -773,7 +774,7 @@ export interface GenerateTextProxyActivityParams {
   filename?: string
 }
 
-export interface GenerateTextProxyActivityResult {
+export interface TextProxyResult {
   textProxyKey: string
   textFilePath: string
   encoding: string
@@ -782,10 +783,20 @@ export interface GenerateTextProxyActivityResult {
   format: 'markdown' | 'plain'
 }
 
+/** Returned instead of a proxy when the upload holds binary data rather than text. */
+export interface BinaryTextSourceResult {
+  binary: true
+}
+
+export type GenerateTextProxyActivityResult = TextProxyResult | BinaryTextSourceResult
+
 /**
  * Builds the UTF-8 text proxy used by the raw text preview: decodes the upload
  * (UTF-8, UTF-16 with BOM, or GB18030), normalizes line endings to LF so line
- * numbers match everywhere, caps the size, and stores it next to the asset.
+ * numbers match everywhere, caps the size, and stores it next to the asset. The
+ * text itself is kept as is (never reformatted), so line N is line N of the file.
+ * Uploads containing NUL characters are binary data, not text: no proxy is stored
+ * and `{ binary: true }` is returned instead.
  */
 export async function generateTextProxyActivity(
   params: GenerateTextProxyActivityParams,
@@ -797,6 +808,14 @@ export async function generateTextProxyActivity(
 
   try {
     const { text, encoding, truncated } = readTextFileHead(params.filePath, MAX_TEXT_PROXY_BYTES)
+    if (text.includes('\u0000')) {
+      logger.info(
+        { assetId: params.assetId, assetKey: params.assetKey, encoding },
+        'Skipping text proxy for binary file',
+      )
+      return { binary: true }
+    }
+
     const content = Buffer.from(text, 'utf-8')
     fs.writeFileSync(textFilePath, content)
 

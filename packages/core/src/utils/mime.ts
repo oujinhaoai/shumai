@@ -1,7 +1,15 @@
 export type ProxyType = 'image' | 'video' | 'audio' | 'pdf' | 'text'
 
+/**
+ * Lowercases a media type and drops its parameters, so `Text/Plain; charset=UTF-8`
+ * compares equal to `text/plain`. Every media type check in this module goes through it.
+ */
+export function normalizeMediaType(mediaType?: string | null): string {
+  return (mediaType ?? '').split(';')[0].trim().toLowerCase()
+}
+
 export function isOfficeDocument(mediaType?: string | null, filename?: string | null): boolean {
-  const lowerMediaType = mediaType?.toLowerCase() || ''
+  const lowerMediaType = normalizeMediaType(mediaType)
   const lowerFilename = filename?.toLowerCase() || ''
 
   if (
@@ -37,7 +45,7 @@ export function isOfficeDocument(mediaType?: string | null, filename?: string | 
 }
 
 export function isHtmlDocument(mediaType?: string | null, filename?: string | null): boolean {
-  const lowerMediaType = mediaType?.toLowerCase() || ''
+  const lowerMediaType = normalizeMediaType(mediaType)
   const lowerFilename = filename?.toLowerCase() || ''
 
   return (
@@ -48,7 +56,7 @@ export function isHtmlDocument(mediaType?: string | null, filename?: string | nu
 }
 
 export function isMarkdownDocument(mediaType?: string | null, filename?: string | null): boolean {
-  const lowerMediaType = mediaType?.toLowerCase() || ''
+  const lowerMediaType = normalizeMediaType(mediaType)
   const lowerFilename = filename?.toLowerCase() || ''
 
   return (
@@ -60,54 +68,136 @@ export function isMarkdownDocument(mediaType?: string | null, filename?: string 
 }
 
 export function isCsvDocument(mediaType?: string | null, filename?: string | null): boolean {
-  const lowerMediaType = mediaType?.toLowerCase() || ''
+  const lowerMediaType = normalizeMediaType(mediaType)
   const lowerFilename = filename?.toLowerCase() || ''
 
   return lowerMediaType === 'text/csv' || lowerFilename.endsWith('.csv')
 }
 
-/**
- * Markdown and plain-text (.txt / text/plain) documents: the files eligible for
- * the raw text preview. CSV, HTML, Office and PDF files are excluded even when
- * uploaded as `text/plain`, matching the precedence used for PDF proxies.
- */
-export function isPlainTextDocument(mediaType?: string | null, filename?: string | null): boolean {
-  const lowerMediaType = mediaType?.toLowerCase() || ''
+/** Plain-text files: a `.txt` name or a `text/plain` media type. */
+export function isTxtDocument(mediaType?: string | null, filename?: string | null): boolean {
   const lowerFilename = filename?.toLowerCase() || ''
 
-  if (
+  return normalizeMediaType(mediaType) === 'text/plain' || lowerFilename.endsWith('.txt')
+}
+
+/**
+ * Code, config, log and subtitle file extensions that the raw text preview shows as
+ * their original text. They are matched by extension whatever media type the client
+ * reports, since browsers and the CLI report these files inconsistently (often as
+ * `application/octet-stream` or not at all). `.ts` and `.mts` are left out on purpose
+ * because they are also video extensions (MPEG transport stream, AVCHD), and so is
+ * `.env` because such files usually hold secrets.
+ */
+export const CODE_AND_CONFIG_EXTENSIONS: readonly string[] = [
+  // Data and configuration
+  '.json',
+  '.jsonl',
+  '.yaml',
+  '.yml',
+  '.toml',
+  '.ini',
+  '.cfg',
+  '.conf',
+  '.properties',
+  '.xml',
+  '.log',
+  // Code and scripts
+  '.py',
+  '.js',
+  '.mjs',
+  '.cjs',
+  '.jsx',
+  '.sh',
+  '.bash',
+  '.sql',
+  '.css',
+  // Subtitles
+  '.srt',
+  '.vtt',
+]
+
+/**
+ * Files that keep their own preview whatever their name suggests: images, audio and
+ * video (by media type, plus Photoshop files) and the PDF, Office, HTML and CSV
+ * documents that are converted to PDF.
+ */
+function hasDedicatedPreview(mediaType?: string | null, filename?: string | null): boolean {
+  const lowerMediaType = normalizeMediaType(mediaType)
+  const lowerFilename = filename?.toLowerCase() || ''
+
+  return (
+    lowerMediaType.startsWith('image/') ||
+    lowerMediaType.startsWith('video/') ||
+    lowerMediaType.startsWith('audio/') ||
+    lowerFilename.endsWith('.psd') ||
     lowerMediaType === 'application/pdf' ||
     lowerFilename.endsWith('.pdf') ||
     isOfficeDocument(mediaType, filename) ||
     isHtmlDocument(mediaType, filename) ||
     isCsvDocument(mediaType, filename)
-  ) {
-    return false
-  }
-
-  return (
-    isMarkdownDocument(mediaType, filename) ||
-    lowerMediaType === 'text/plain' ||
-    lowerFilename.endsWith('.txt')
   )
 }
 
+/**
+ * Markdown and plain-text (.txt / text/plain) documents. CSV, HTML, Office and PDF
+ * files are excluded even when uploaded as `text/plain`, matching the precedence
+ * used for PDF proxies, and so are images, audio and video.
+ */
+export function isPlainTextDocument(mediaType?: string | null, filename?: string | null): boolean {
+  if (hasDedicatedPreview(mediaType, filename)) return false
+
+  return isMarkdownDocument(mediaType, filename) || isTxtDocument(mediaType, filename)
+}
+
+/**
+ * Code, config, log and subtitle files (see {@link CODE_AND_CONFIG_EXTENSIONS}). The
+ * extension decides, unless the media type marks the file as an image, audio, video,
+ * PDF, Office, HTML, CSV or Markdown document, which keep their own handling.
+ */
+export function isCodeOrConfigDocument(
+  mediaType?: string | null,
+  filename?: string | null,
+): boolean {
+  const lowerFilename = filename?.toLowerCase() || ''
+  if (!CODE_AND_CONFIG_EXTENSIONS.some((ext) => lowerFilename.endsWith(ext))) return false
+
+  return !hasDedicatedPreview(mediaType, filename) && !isMarkdownDocument(mediaType, filename)
+}
+
+/**
+ * Files the raw text preview (team setting `textPreviewMode: raw`) shows as their
+ * original text: Markdown and plain-text documents, and code and config files.
+ */
+export function supportsRawTextPreview(
+  mediaType?: string | null,
+  filename?: string | null,
+): boolean {
+  return isPlainTextDocument(mediaType, filename) || isCodeOrConfigDocument(mediaType, filename)
+}
+
+/**
+ * The preview proxy a file gets by default, before the team's text preview mode is
+ * applied. Code and config files get none: they are never converted to PDF, even when
+ * reported as `text/plain`, and are only previewed as original text in raw mode.
+ */
 export function getProxyType(
   mediaType?: string | null,
   filename?: string | null,
 ): ProxyType | null {
-  const lowerMediaType = mediaType?.toLowerCase() || ''
+  const lowerMediaType = normalizeMediaType(mediaType)
   const lowerFilename = filename?.toLowerCase() || ''
 
   if (lowerMediaType.startsWith('image/') || lowerFilename.endsWith('.psd')) return 'image'
   if (lowerMediaType.startsWith('video/')) return 'video'
   if (lowerMediaType.startsWith('audio/')) return 'audio'
 
+  if (isCodeOrConfigDocument(mediaType, filename)) return null
+
   if (
     lowerMediaType === 'application/pdf' ||
-    lowerMediaType === 'text/plain' ||
     lowerFilename.endsWith('.pdf') ||
-    lowerFilename.endsWith('.txt') ||
+    isTxtDocument(mediaType, filename) ||
     isCsvDocument(mediaType, filename) ||
     isMarkdownDocument(mediaType, filename) ||
     isHtmlDocument(mediaType, filename) ||
