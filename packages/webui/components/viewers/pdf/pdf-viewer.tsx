@@ -401,7 +401,7 @@ export const PdfViewer = React.forwardRef<MediaController, FileViewerProps>(
     const displayAnnotations = [...(annotations || []), ...draftAnnotations]
 
     return (
-      <div className="flex flex-col flex-1 h-full overflow-hidden bg-gray-100 dark:bg-gray-950 relative">
+      <div className="flex flex-col flex-1 h-full overflow-hidden bg-muted relative">
         <div className="flex-1 flex flex-col-reverse md:flex-row min-h-0 relative">
           {children}
           <div ref={containerRef} className="flex-1 relative overflow-hidden touch-none">
@@ -410,7 +410,7 @@ export const PdfViewer = React.forwardRef<MediaController, FileViewerProps>(
                 <div className="w-8 h-8 border-4 border-white/30 border-t-white rounded-full animate-spin" />
               </div>
             ) : error ? (
-              <div className="absolute inset-0 flex items-center justify-center text-gray-500 text-sm">
+              <div className="absolute inset-0 flex items-center justify-center text-muted-foreground text-sm">
                 {error}
               </div>
             ) : (

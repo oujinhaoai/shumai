@@ -182,7 +182,7 @@ export const CompareImagePane = forwardRef<ComparePaneHandle, CompareImagePanePr
 
     if (!bestUrl) {
       return (
-        <div className="flex flex-1 items-center justify-center bg-gray-100 dark:bg-gray-950">
+        <div className="flex flex-1 items-center justify-center bg-muted">
           <p className="text-muted-foreground">{m.preview_unavailable()}</p>
         </div>
       )
