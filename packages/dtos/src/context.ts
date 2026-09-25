@@ -78,6 +78,9 @@ export function serializeContextToXml(context?: ShumaiMessageContext | null): st
     if (ca.totalPages !== undefined) {
       assetAttrs += ` total_pages="${Math.round(ca.totalPages)}"`
     }
+    if (ca.totalLines !== undefined) {
+      assetAttrs += ` total_lines="${Math.round(ca.totalLines)}"`
+    }
     if (ca.navigated !== undefined) {
       assetAttrs += ` navigated="${String(ca.navigated)}"`
     }
@@ -104,6 +107,8 @@ export function serializeContextToXml(context?: ShumaiMessageContext | null): st
       lines.push(`  <position type="time" seconds="${context.position.seconds.toFixed(4)}" />`)
     } else if (context.position.type === 'page') {
       lines.push(`  <position type="page" page="${Math.round(context.position.page)}" />`)
+    } else if (context.position.type === 'line') {
+      lines.push(`  <position type="line" line="${Math.round(context.position.line)}" />`)
     }
   }
 

@@ -1,4 +1,4 @@
-export type ProxyType = 'image' | 'video' | 'audio' | 'pdf'
+export type ProxyType = 'image' | 'video' | 'audio' | 'pdf' | 'text'
 
 export function isOfficeDocument(mediaType?: string | null, filename?: string | null): boolean {
   const lowerMediaType = mediaType?.toLowerCase() || ''
@@ -64,6 +64,32 @@ export function isCsvDocument(mediaType?: string | null, filename?: string | nul
   const lowerFilename = filename?.toLowerCase() || ''
 
   return lowerMediaType === 'text/csv' || lowerFilename.endsWith('.csv')
+}
+
+/**
+ * Markdown and plain-text (.txt / text/plain) documents: the files eligible for
+ * the raw text preview. CSV, HTML, Office and PDF files are excluded even when
+ * uploaded as `text/plain`, matching the precedence used for PDF proxies.
+ */
+export function isPlainTextDocument(mediaType?: string | null, filename?: string | null): boolean {
+  const lowerMediaType = mediaType?.toLowerCase() || ''
+  const lowerFilename = filename?.toLowerCase() || ''
+
+  if (
+    lowerMediaType === 'application/pdf' ||
+    lowerFilename.endsWith('.pdf') ||
+    isOfficeDocument(mediaType, filename) ||
+    isHtmlDocument(mediaType, filename) ||
+    isCsvDocument(mediaType, filename)
+  ) {
+    return false
+  }
+
+  return (
+    isMarkdownDocument(mediaType, filename) ||
+    lowerMediaType === 'text/plain' ||
+    lowerFilename.endsWith('.txt')
+  )
 }
 
 export function getProxyType(

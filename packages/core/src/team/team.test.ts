@@ -12,6 +12,7 @@ describe('TeamService', () => {
     expect(team).toBeDefined()
     expect(team.name).toBe('Default Team')
     expect((team.settings as TeamSettingsResponse | null)?.transcode?.threads).toBe(0)
+    expect((team.settings as TeamSettingsResponse | null)?.transcode?.textPreviewMode).toBe('pdf')
   })
 
   it('should create team', async () => {
@@ -371,6 +372,7 @@ describe('TeamService', () => {
         videoStrategy: 'best_match',
         hardwareAcceleration: 'off',
         threads: 0,
+        textPreviewMode: 'pdf',
       },
       appearance: { hideAgent: false },
     })
@@ -385,6 +387,7 @@ describe('TeamService', () => {
         videoStrategy: 'best_match',
         hardwareAcceleration: 'off',
         threads: 0,
+        textPreviewMode: 'pdf',
       },
       appearance: { hideAgent: false },
     })
@@ -392,6 +395,7 @@ describe('TeamService', () => {
     await teamService.updateSettings(team.id, 'transcode.videoStrategy', 'all')
     await teamService.updateSettings(team.id, 'transcode.hardwareAcceleration', 'auto')
     await teamService.updateSettings(team.id, 'transcode.threads', 4)
+    await teamService.updateSettings(team.id, 'transcode.textPreviewMode', 'raw')
     await teamService.updateSettings(team.id, 'appearance.hideAgent', true)
 
     const finalSettings = await teamService.getSettings(team.id)
@@ -401,10 +405,29 @@ describe('TeamService', () => {
         videoStrategy: 'all',
         hardwareAcceleration: 'auto',
         threads: 4,
+        textPreviewMode: 'raw',
       },
       appearance: { hideAgent: true },
       semanticSearchEnabled: false,
     })
+  })
+
+  it('should persist transcode.textPreviewMode in the nested transcode settings', async () => {
+    const user = await prisma.user.create({
+      data: { name: 'Test User', email: `test-text-${Date.now()}@example.com`, password: 'pw' },
+    })
+    const team = await teamService.createTeam(user, { name: 'Text Preview Team' })
+
+    await teamService.updateSettings(team.id, 'transcode.textPreviewMode', 'raw')
+
+    const row = await prisma.team.findUnique({ where: { id: team.id } })
+    const stored = row?.settings as Record<string, unknown> | null
+    expect(stored?.['transcode.textPreviewMode']).toBeUndefined()
+    expect((stored?.transcode as Record<string, unknown> | undefined)?.textPreviewMode).toBe('raw')
+
+    await teamService.updateSettings(team.id, 'transcode.textPreviewMode', 'pdf')
+    const settings = await teamService.getSettings(team.id)
+    expect(settings.transcode?.textPreviewMode).toBe('pdf')
   })
 
   it('should create sandbox when team is created', async () => {

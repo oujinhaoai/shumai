@@ -23,6 +23,7 @@ import { quotaService, QuotaExceededError } from '@shumai/core/src/quota/quota-s
 import { getProxyType } from '@shumai/core/src/utils/mime'
 import {
   UpdateAssetMetadataRequest,
+  type ShumaiAttachedFileContext,
   type ShumaiMessageContext,
   type ShumaiMediaPosition,
 } from '@shumai/dtos'
@@ -535,8 +536,11 @@ export interface AutofillAiParams {
   projectId?: string
   assetName?: string
   mediaType?: string
+  /** The asset's persisted proxy type; falls back to one derived from mediaType/assetName. */
+  proxyType?: string
   duration?: number
   pageCount?: number
+  lineCount?: number
 }
 
 export async function autofillAiActivity(params: AutofillAiParams) {
@@ -561,9 +565,10 @@ export async function autofillAiActivity(params: AutofillAiParams) {
     `You are tasked with analyzing the asset "${params.assetName || params.assetId || 'unknown'}" (ID: "${params.assetId || ''}", mediaType: "${params.mediaType || 'unknown'}") to extract and autofill its metadata fields.`,
   ]
 
-  const proxyType = getProxyType(params.mediaType, params.assetName)
+  const proxyType = params.proxyType || getProxyType(params.mediaType, params.assetName)
   const isVideoOrAudio = proxyType === 'video' || proxyType === 'audio'
   const isPdf = proxyType === 'pdf'
+  const isText = proxyType === 'text'
 
   if (params.duration !== undefined && params.duration > 0 && (!proxyType || isVideoOrAudio)) {
     promptLines.push(
@@ -573,6 +578,12 @@ export async function autofillAiActivity(params: AutofillAiParams) {
   if (params.pageCount !== undefined && params.pageCount > 0 && (!proxyType || isPdf)) {
     promptLines.push(
       `- Document pages: ${params.pageCount}. Recommended inspection: call read_asset with docConfig: { mode: "pages", startPage: 1, endPage: ${Math.min(params.pageCount, 20)} } or mode: "text".`,
+    )
+  }
+  if (isText) {
+    const lineInfo = params.lineCount !== undefined ? ` with ${params.lineCount} lines` : ''
+    promptLines.push(
+      `- Text document${lineInfo}, previewed as its original text (no rendered pages). Recommended inspection: call read_asset with docConfig: { mode: "text", startPage: null, endPage: null }, adding startLine/endLine to read further ranges.`,
     )
   }
 
@@ -836,6 +847,8 @@ export async function initializeAgentSessionActivity(params: {
     if (c.second !== null && c.second !== undefined) {
       if (proxyType === 'pdf') {
         position = { type: 'page', page: Math.round(c.second) }
+      } else if (proxyType === 'text') {
+        position = { type: 'line', line: Math.round(c.second) }
       } else {
         position = { type: 'time', seconds: c.second }
       }
@@ -852,7 +865,7 @@ export async function initializeAgentSessionActivity(params: {
             id: att.asset.id,
             name: att.asset.name,
             type: att.asset.type,
-            mediaType: attProxyType as 'image' | 'video' | 'pdf' | 'audio' | 'other' | undefined,
+            mediaType: attProxyType as ShumaiAttachedFileContext['mediaType'],
             mimeType: att.asset.mediaType || undefined,
           })
         }

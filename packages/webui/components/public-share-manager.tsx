@@ -22,6 +22,7 @@ import { FileViewer } from './file-viewer'
 import { CompareViewer } from './compare/compare-viewer'
 import { pickDefaultCompareVersions } from './compare/compare-utils'
 import type { MediaController } from './viewers/types'
+import { hidesAnnotationControl } from './viewers/registry'
 import type { Annotation } from '@/ui/types'
 
 import { useNavigate } from '@tanstack/react-router'
@@ -791,10 +792,9 @@ export function PublicShareManager({
                     mediaControllerRef.current?.pause()
                   }}
                   selectedCommentId={selectedCommentId}
-                  hideAnnotationControl={
-                    (isCompareMode ? compareActiveAsset : currentSelectedItem)?.proxyType ===
-                    'audio'
-                  }
+                  hideAnnotationControl={hidesAnnotationControl(
+                    isCompareMode ? compareActiveAsset : currentSelectedItem,
+                  )}
                 />
               </div>
             </>

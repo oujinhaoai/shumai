@@ -125,6 +125,7 @@ describe('Agent Autofill Workflow', () => {
       assetId: 'a1',
       assetName: 'test.png',
       mediaType: 'image/png',
+      proxyType: 'image',
       duration: undefined,
       pageCount: undefined,
       projectId: 'p1',
@@ -355,6 +356,49 @@ describe('Agent Autofill Workflow', () => {
         mediaType: 'application/pdf',
         duration: undefined,
         pageCount: 25,
+      }),
+    )
+  })
+
+  it('should pass the text proxy type and line count for raw text previews', async () => {
+    mockActivities.getAssetActivity.mockResolvedValue({
+      id: 'md1',
+      name: 'notes.md',
+      projectId: 'p1',
+      storageKey: { key: 'asset-md-key' },
+      project: { id: 'p1', teamId: 't1' },
+      mediaType: 'text/markdown',
+      media: {
+        proxyType: 'text',
+        duration: 0,
+        frames: 0,
+        metadata: null,
+        textTranscode: { key: 'files/md1/proxy.txt', lineCount: 64 },
+      },
+    })
+
+    const task = await prisma.workflowTask.create({
+      data: {
+        type: 'ai_metadata_autofill',
+        status: 'pending',
+        assetId: 'md1',
+        payload: {
+          projectId: 'p1',
+          agent: { sessionId: 's1', agentId: 'agent-1' },
+        },
+      },
+    })
+
+    await agentAutofillMedia(task)
+
+    expect(mockActivities.autofillAiActivity).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assetId: 'md1',
+        mediaType: 'text/markdown',
+        proxyType: 'text',
+        lineCount: 64,
+        pageCount: undefined,
+        duration: undefined,
       }),
     )
   })

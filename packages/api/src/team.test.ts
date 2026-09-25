@@ -298,6 +298,32 @@ describe('team api', () => {
     expect(resFloat.status).toBe(400)
   })
 
+  it('PATCH /teams/:teamId/settings updates transcode.textPreviewMode', async () => {
+    mockUpdateSettings.mockResolvedValue({ transcode: { textPreviewMode: 'raw' } })
+
+    const res = await app.request('/teams/t1/settings', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'transcode.textPreviewMode', value: 'raw' }),
+    })
+
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.transcode.textPreviewMode).toBe('raw')
+    expect(mockUpdateSettings).toHaveBeenCalledWith('t1', 'transcode.textPreviewMode', 'raw')
+  })
+
+  it('PATCH /teams/:teamId/settings rejects invalid transcode.textPreviewMode', async () => {
+    const res = await app.request('/teams/t1/settings', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'transcode.textPreviewMode', value: 'html' }),
+    })
+
+    expect(res.status).toBe(400)
+    expect(mockUpdateSettings).not.toHaveBeenCalled()
+  })
+
   it('PATCH /teams/:teamId/settings updates appearance.hideAgent', async () => {
     mockUpdateSettings.mockResolvedValue({ appearance: { hideAgent: true } })
 

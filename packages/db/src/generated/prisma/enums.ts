@@ -136,6 +136,7 @@ export const WorkflowTaskType = {
   transcode_image: 'transcode_image',
   transcode_pdf: 'transcode_pdf',
   transcode_pdf_pages: 'transcode_pdf_pages',
+  transcode_text: 'transcode_text',
   transcode_screenshot: 'transcode_screenshot',
   transcode_image_annotation: 'transcode_image_annotation',
   transcode_watermark: 'transcode_watermark',

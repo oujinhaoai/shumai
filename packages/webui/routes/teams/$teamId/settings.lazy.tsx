@@ -2,6 +2,7 @@ import { createLazyFileRoute } from '@tanstack/react-router'
 import {
   VideoTranscodeStrategy,
   HardwareAcceleration,
+  TextPreviewMode,
   UpdateTeamSettingsRequest,
   TeamSettingsResponse,
 } from '@shumai/dtos'
@@ -328,6 +329,16 @@ function TeamSettingsPage() {
     })
   }
 
+  const handleTextPreviewModeChange = (value: TextPreviewMode) => {
+    updateSettings({
+      teamId,
+      data: {
+        key: 'transcode.textPreviewMode',
+        value,
+      },
+    })
+  }
+
   if (isSettingsLoading || isMeLoading) {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -354,6 +365,10 @@ function TeamSettingsPage() {
     (settings as any)?.transcode?.hardwareAcceleration || HardwareAcceleration.off
 
   const currentThreads = localThreads ?? serverThreads
+
+  const currentTextPreviewMode =
+    (settings as TeamSettingsResponse | undefined)?.transcode?.textPreviewMode ??
+    TextPreviewMode.pdf
 
   return (
     <div className="h-full bg-background font-sans selection:bg-primary/20 transition-colors duration-300">
@@ -865,6 +880,51 @@ function TeamSettingsPage() {
                             <span>{m.threads_auto()} (0)</span>
                             <span>16</span>
                             <span>32</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Text File Preview */}
+                      <div className="space-y-3 pt-6 border-t border-border">
+                        <div>
+                          <h3 className="text-lg font-medium">{m.text_preview_mode()}</h3>
+                          <p className="text-sm text-muted-foreground">
+                            {m.text_preview_mode_description()}
+                          </p>
+                        </div>
+                        <div className="space-y-3">
+                          <div
+                            data-testid="text-preview-mode-pdf"
+                            aria-pressed={currentTextPreviewMode === TextPreviewMode.pdf}
+                            className={cn(
+                              'cursor-pointer rounded-lg border p-4 transition-all hover:border-primary',
+                              currentTextPreviewMode === TextPreviewMode.pdf
+                                ? 'border-primary bg-primary/5'
+                                : 'border-border',
+                            )}
+                            onClick={() => handleTextPreviewModeChange(TextPreviewMode.pdf)}
+                          >
+                            <div className="font-semibold">{m.text_preview_mode_pdf()}</div>
+                            <div className="text-sm text-muted-foreground">
+                              {m.text_preview_mode_pdf_description()}
+                            </div>
+                          </div>
+
+                          <div
+                            data-testid="text-preview-mode-raw"
+                            aria-pressed={currentTextPreviewMode === TextPreviewMode.raw}
+                            className={cn(
+                              'cursor-pointer rounded-lg border p-4 transition-all hover:border-primary',
+                              currentTextPreviewMode === TextPreviewMode.raw
+                                ? 'border-primary bg-primary/5'
+                                : 'border-border',
+                            )}
+                            onClick={() => handleTextPreviewModeChange(TextPreviewMode.raw)}
+                          >
+                            <div className="font-semibold">{m.text_preview_mode_raw()}</div>
+                            <div className="text-sm text-muted-foreground">
+                              {m.text_preview_mode_raw_description()}
+                            </div>
                           </div>
                         </div>
                       </div>

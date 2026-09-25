@@ -172,6 +172,10 @@ export async function agentChat(task: WorkflowTask): Promise<void> {
       proxyType === 'pdf' ? mediaInfo?.frames || mediaInfo?.metadata?.totalFrames : undefined
     const totalFrames =
       proxyType === 'video' ? mediaInfo?.frames || mediaInfo?.metadata?.totalFrames : undefined
+    const totalLines =
+      proxyType === 'text' && typeof mediaInfo?.textTranscode?.lineCount === 'number'
+        ? mediaInfo.textTranscode.lineCount
+        : undefined
 
     // Resolve Attached Files Details
     const attachedFiles: ShumaiAttachedFileContext[] = []
@@ -275,6 +279,8 @@ export async function agentChat(task: WorkflowTask): Promise<void> {
     if (commentTimestamp !== undefined && commentTimestamp !== null) {
       if (proxyType === 'pdf') {
         mediaPosition = { type: 'page', page: Math.round(commentTimestamp) }
+      } else if (proxyType === 'text') {
+        mediaPosition = { type: 'line', line: Math.round(commentTimestamp) }
       } else {
         mediaPosition = { type: 'time', seconds: commentTimestamp }
       }
@@ -292,6 +298,7 @@ export async function agentChat(task: WorkflowTask): Promise<void> {
       durationSeconds: duration !== undefined ? duration : undefined,
       totalFrames: totalFrames !== undefined ? totalFrames : undefined,
       totalPages: totalPages !== undefined ? totalPages : undefined,
+      totalLines,
       navigated: payload.agent?.hasAssetChanged === true ? true : undefined,
       ancestors: ancestors.length > 0 ? ancestors : undefined,
     }

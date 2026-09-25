@@ -44,6 +44,7 @@ import { Input } from '@/ui/components/ui/input'
 import { selectFileNameWithoutExtension } from '@/ui/lib/rename-utils'
 import { toast } from 'sonner'
 import type { MediaController } from '@/ui/components/viewers/types'
+import { hidesAnnotationControl } from '@/ui/components/viewers/registry'
 import type {
   AssetInfo,
   AssetInfoPaginatedList,
@@ -586,7 +587,9 @@ function FileViewPage() {
         ? details.position.seconds
         : details?.position?.type === 'page'
           ? details.position.page
-          : undefined
+          : details?.position?.type === 'line'
+            ? details.position.line
+            : undefined
 
     if (isCompareMode) {
       if (second !== undefined) {
@@ -757,7 +760,7 @@ function FileViewPage() {
                     mediaControllerRef.current?.pause()
                   }}
                   selectedCommentId={selectedCommentId}
-                  hideAnnotationControl={sidebarFile?.proxyType === 'audio'}
+                  hideAnnotationControl={hidesAnnotationControl(sidebarFile)}
                 />
               )}
             </div>

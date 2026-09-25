@@ -5,6 +5,7 @@ import * as watermarkActivities from './activities/watermark'
 import { transcodeVideoWorkflow } from './workflows/transcode-video'
 import { transcodeImageWorkflow } from './workflows/transcode-image'
 import { transcodePdfWorkflow } from './workflows/transcode-pdf'
+import { transcodeTextWorkflow } from './workflows/transcode-text'
 import { renderPdfPagesWorkflow } from './workflows/render-pdf-pages'
 import { takeVideoScreenshotsWorkflow } from './workflows/take-video-screenshots'
 import { overlayImageAnnotationWorkflow } from './workflows/overlay-image-annotation'
@@ -16,6 +17,7 @@ export function initTranscodeWorkflows() {
   registerWorkflow(WorkflowTaskType.transcode_video, transcodeVideoWorkflow)
   registerWorkflow(WorkflowTaskType.transcode_image, transcodeImageWorkflow)
   registerWorkflow(WorkflowTaskType.transcode_pdf, transcodePdfWorkflow)
+  registerWorkflow(WorkflowTaskType.transcode_text, transcodeTextWorkflow)
   registerWorkflow(WorkflowTaskType.transcode_pdf_pages, renderPdfPagesWorkflow)
   registerWorkflow(WorkflowTaskType.transcode_screenshot, takeVideoScreenshotsWorkflow)
   registerWorkflow(WorkflowTaskType.transcode_image_annotation, overlayImageAnnotationWorkflow)

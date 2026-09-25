@@ -125,6 +125,7 @@ export const systemFields: Prisma.MetadataFieldCreateInput[] = [
           { id: 'video', displayName: 'Video', color: 'system' },
           { id: 'audio', displayName: 'Audio', color: 'system' },
           { id: 'pdf', displayName: 'PDF', color: 'system' },
+          { id: 'text', displayName: 'Text', color: 'system' },
         ],
       },
     },

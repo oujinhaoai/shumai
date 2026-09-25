@@ -14,12 +14,17 @@ import {
   S3SignResponse,
   TaskInfo,
 } from '@shumai/dtos'
-import { ImageTranscoder, PdfTranscoder, VideoTranscoder } from '@shumai/transcode'
+import { ImageTranscoder, PdfTranscoder, TextTranscoder, VideoTranscoder } from '@shumai/transcode'
 import { generateKeyBetween } from 'jittered-fractional-indexing'
 import { ulid } from 'ulid'
 import { gotenbergService } from '@shumai/core/src/gotenberg/gotenberg'
 import { sanitizeFilename } from '@shumai/core/src/utils/filename'
-import { getProxyType, isHtmlDocument, isOfficeDocument } from '@shumai/core/src/utils/mime'
+import {
+  getProxyType,
+  isHtmlDocument,
+  isOfficeDocument,
+  isPlainTextDocument,
+} from '@shumai/core/src/utils/mime'
 import { logger } from '@shumai/core/src/logger'
 
 export class UploadService {
@@ -315,14 +320,14 @@ export class UploadService {
     })
     if (!team) throw new Error('Team not found')
 
-    const proxyType =
-      (asset.media as PrismaJson.MediaInfo | null)?.proxyType ||
-      getProxyType(asset.mediaType, asset.name)
+    const persistedProxyType = (asset.media as PrismaJson.MediaInfo | null)?.proxyType
+    const proxyType = persistedProxyType || getProxyType(asset.mediaType, asset.name)
 
     const isVideo = proxyType === 'video'
     const isImage = proxyType === 'image'
     const isAudio = proxyType === 'audio'
     const isPdf = proxyType === 'pdf'
+    const isText = proxyType === 'text'
 
     if (!proxyType) {
       await tx.asset.update({
@@ -351,7 +356,23 @@ export class UploadService {
       } else if (isImage) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await new ImageTranscoder(tx as any, asset.id, team.id, projectId).withThumbnail().submit()
+      } else if (isText) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await new TextTranscoder(tx as any, asset.id, team.id, projectId).submit()
       } else if (isPdf) {
+        // Raw text preview is decided once, for files without a persisted proxy
+        // type, so switching the team setting never changes existing files.
+        const textPreviewMode = settings?.transcode?.textPreviewMode ?? 'pdf'
+        if (
+          !persistedProxyType &&
+          textPreviewMode === 'raw' &&
+          isPlainTextDocument(asset.mediaType, asset.name)
+        ) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await new TextTranscoder(tx as any, asset.id, team.id, projectId).submit()
+          return
+        }
+
         const isOffice = isOfficeDocument(asset.mediaType, asset.name)
         const isHtml = isHtmlDocument(asset.mediaType, asset.name)
 
