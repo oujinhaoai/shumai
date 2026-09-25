@@ -54,6 +54,38 @@ With **Original text**, the following file types are previewed as text, whatever
 
 ---
 
+## When a Preview Cannot Be Generated
+
+### Failed Transcodes
+
+When a preview cannot be generated (for example, the file is damaged, uses a format the transcoder cannot read, or went missing from storage), the transcode fails once any automatic retries are used up. The file then finishes processing instead of staying in "processing":
+
+- The file is marked as processed, without a preview. The viewer shows **Preview unavailable** and one line with the reason, such as `Transcoding failed: Failed to get media info: Input file contains unsupported image format`. The original file can still be downloaded.
+- The transcode task stays marked as failed and is not retried automatically.
+- A file that was moved to the trash or is being deleted while it was transcoding keeps that state.
+- If the same file is transcoded again later and succeeds, the failure is cleared and the preview appears as usual.
+
+Files that were already stuck in "processing" after a failed transcode (from before this behavior existed) are repaired automatically each time the server starts: every file still in "processing" whose latest transcode has failed is marked as processed and shows the failure reason. Files whose transcode is still queued or running are left alone, and running the repair again changes nothing. To repair such files, restart the Shumai server (for example, restart its Docker container).
+
+### Image Formats Without a Preview
+
+The image transcoder cannot decode the following formats, so Shumai does not try to generate a preview for them. Uploads finish processing right away, without a preview, and can be downloaded as usual:
+
+| Format                     | Extensions |
+| -------------------------- | ---------- |
+| OpenEXR                    | `.exr`     |
+| Radiance HDR               | `.hdr`     |
+| Truevision Targa           | `.tga`     |
+| DirectDraw Surface texture | `.dds`     |
+| Windows Bitmap             | `.bmp`     |
+| JPEG 2000                  | `.jp2`     |
+
+- Files are recognized by their extension, in upper or lower case, whatever file type the browser or the CLI reports for them.
+- Files uploaded before this change keep their current preview type.
+- Other image formats such as PNG, JPEG, WebP, GIF, TIFF, AVIF, and Photoshop (`.psd`) files are previewed as before.
+
+---
+
 ## Processing Architecture
 
 Transcoding is resource-intensive. Depending on your scaling needs, your administrator can run the transcode engine on the main server (Single-Server mode) or delegate tasks to specialized transcoding worker machines (Temporal Worker mode).
