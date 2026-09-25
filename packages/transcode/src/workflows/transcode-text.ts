@@ -10,8 +10,9 @@ import {
 } from './common'
 
 /**
- * Prepares a Markdown/plain-text upload for the raw text preview: stores a
- * UTF-8 text proxy instead of converting the file to PDF.
+ * Prepares a Markdown, plain-text, code or config upload for the raw text preview:
+ * stores a UTF-8 text proxy instead of converting the file to PDF. Binary uploads
+ * (NUL characters) end up processed without a proxy.
  */
 export async function transcodeTextWorkflow(task: WorkflowTask): Promise<void> {
   let tmpDir: string | undefined
@@ -49,6 +50,17 @@ export async function transcodeTextWorkflow(task: WorkflowTask): Promise<void> {
       mediaType: asset.mediaType || '',
       filename: asset.name || '',
     })
+
+    if ('binary' in textProxy) {
+      // Binary data has no text preview: finish like any file without a preview
+      // rather than failing, which would leave the asset stuck in processing.
+      await executeActivity(workerQueue, updateAssetStatusActivity, {
+        assetId: asset.id,
+        status: 'processed',
+      })
+      await completeTask(workerQueue, task.id, { skipped: 'binary' })
+      return
+    }
 
     const mediaInfo = await executeActivity(workerQueue, getMediaInfoActivity, {
       filePath: textProxy.textFilePath,

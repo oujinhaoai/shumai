@@ -15,6 +15,19 @@ describe('viewer registry', () => {
     expect(def.commentsConfig?.formatTimestamp?.(12)).toBe('L12')
   })
 
+  it.each(['settings.json', 'config.yaml', 'tool.py', 'server.log', 'captions.srt'])(
+    'opens %s with a text proxy in the text viewer with line comments and no drawing',
+    (name) => {
+      const file = { id: 'a', name, proxyType: 'text' } as AssetInfo
+      const def = getViewerForFile(file)
+
+      expect(def.id).toBe('text')
+      expect(def.commentsConfig).toMatchObject({ hasTimestamp: true, hasAnnotations: false })
+      expect(def.commentsConfig?.formatTimestamp?.(7)).toBe('L7')
+      expect(hidesAnnotationControl(file)).toBe(true)
+    },
+  )
+
   it('keeps the PDF viewer for PDF proxies', () => {
     expect(getViewerForFile({ id: 'a', name: 'notes.md', proxyType: 'pdf' } as AssetInfo).id).toBe(
       'pdf',

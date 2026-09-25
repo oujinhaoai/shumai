@@ -173,6 +173,78 @@ describe('transcodeTextWorkflow', () => {
     })
   })
 
+  it('should store a plain text proxy for a code file', async () => {
+    mockActivities.getAssetActivity.mockResolvedValue({
+      id: 'asset-text',
+      name: 'settings.json',
+      storageKey: { key: 'files/asset-text/settings.json' },
+      mediaType: 'application/json;charset=utf-8',
+      status: 'processing',
+    })
+    mockActivities.downloadMediaToTmpActivity.mockResolvedValue({
+      filePath: '/tmp/transcode-1/settings.json',
+      tmpDir: '/tmp/transcode-1',
+    })
+    mockActivities.generateTextProxyActivity.mockResolvedValue({
+      textProxyKey: 'files/asset-text/proxy.txt',
+      textFilePath: '/tmp/transcode-1/proxy.txt',
+      encoding: 'utf-8',
+      lineCount: 3,
+      truncated: false,
+      format: 'plain',
+    })
+
+    await transcodeTextWorkflow(task)
+
+    expect(mockActivities.generateTextProxyActivity).toHaveBeenCalledWith({
+      assetId: 'asset-text',
+      assetKey: 'files/asset-text/settings.json',
+      filePath: '/tmp/transcode-1/settings.json',
+      mediaType: 'application/json;charset=utf-8',
+      filename: 'settings.json',
+    })
+    expect(mockActivities.updateAssetMediaActivity).toHaveBeenCalledWith({
+      assetId: 'asset-text',
+      mediaInfo: expect.objectContaining({
+        proxyType: 'text',
+        textTranscode: {
+          key: 'files/asset-text/proxy.txt',
+          encoding: 'utf-8',
+          lineCount: 3,
+          truncated: false,
+          format: 'plain',
+        },
+      }),
+    })
+    expect(mockActivities.updateAssetStatusActivity).toHaveBeenLastCalledWith({
+      assetId: 'asset-text',
+      status: AssetStatus.processed,
+    })
+  })
+
+  it('should mark a binary file processed without a text proxy instead of failing', async () => {
+    mockActivities.generateTextProxyActivity.mockResolvedValue({ binary: true })
+
+    await transcodeTextWorkflow(task)
+
+    expect(mockActivities.getMediaInfoActivity).not.toHaveBeenCalled()
+    expect(mockActivities.updateAssetMediaActivity).not.toHaveBeenCalled()
+    expect(mockActivities.createEmbeddingTaskIfEnabledActivity).not.toHaveBeenCalled()
+    expect(mockActivities.createAutofillTaskIfEnabledActivity).not.toHaveBeenCalled()
+    expect(mockActivities.updateAssetStatusActivity).toHaveBeenLastCalledWith({
+      assetId: 'asset-text',
+      status: AssetStatus.processed,
+    })
+    expect(mockActivities.updateTaskStatusActivity).toHaveBeenLastCalledWith({
+      taskId: 'task-text',
+      status: 'completed',
+      output: { skipped: 'binary' },
+    })
+    expect(mockActivities.cleanupTmpDirActivity).toHaveBeenCalledWith({
+      tmpDir: '/tmp/transcode-1',
+    })
+  })
+
   it('should fail the task and clean up when the text proxy cannot be generated', async () => {
     mockActivities.generateTextProxyActivity.mockRejectedValue(new Error('decode failed'))
 

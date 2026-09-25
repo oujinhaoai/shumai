@@ -4,6 +4,7 @@ import { setupTestDbHooks } from '@shumai/db/test'
 import { uploadService } from './upload'
 import { gotenbergService } from '@shumai/core/src/gotenberg/gotenberg'
 import { s3Service } from '@shumai/core/src/s3/s3'
+import { teamService } from '@shumai/core/src/team/team'
 import { AssetStatus, AssetType, TaskStatus, WorkflowTaskType } from '@shumai/db'
 
 vi.mock('@shumai/core/src/s3/s3', () => ({
@@ -16,6 +17,35 @@ vi.mock('@shumai/core/src/s3/s3', () => ({
     deleteObject: vi.fn().mockResolvedValue(1),
   },
 }))
+
+/** Code and config extensions that must get the raw text preview. */
+const CODE_EXTENSIONS = [
+  'json',
+  'yaml',
+  'yml',
+  'toml',
+  'ini',
+  'conf',
+  'xml',
+  'log',
+  'py',
+  'js',
+  'sh',
+  'sql',
+  'css',
+  'srt',
+  'vtt',
+]
+
+/** Media types clients report for code and config files ('' when none is reported). */
+const CLIENT_MEDIA_TYPES = [
+  'application/octet-stream',
+  'application/json',
+  'text/yaml',
+  'text/javascript;charset=utf-8',
+  'text/plain;charset=utf-8',
+  '',
+]
 
 describe('UploadService', () => {
   setupTestDbHooks()
@@ -543,6 +573,154 @@ describe('UploadService', () => {
       } as PrismaJson.MediaInfo)
 
       expect(await taskTypesFor(asset.id)).toEqual([WorkflowTaskType.transcode_text])
+    })
+
+    describe('code and config files', () => {
+      it.each(CODE_EXTENSIONS)(
+        'should create transcode_text for .%s in raw mode whatever media type the client reports',
+        async (ext) => {
+          await setTextPreviewMode('raw')
+
+          for (const [index, mediaType] of CLIENT_MEDIA_TYPES.entries()) {
+            const asset = await uploadFile(`file-${index}.${ext}`, mediaType)
+
+            expect(await taskTypesFor(asset.id), `${ext} ${mediaType}`).toEqual([
+              WorkflowTaskType.transcode_text,
+            ])
+            const workflowTask = await prisma.workflowTask.findFirst({
+              where: { assetId: asset.id, type: WorkflowTaskType.transcode_text },
+            })
+            expect(workflowTask?.payload).toEqual({ projectId, transcode: {} })
+            const updated = await prisma.asset.findUnique({ where: { id: asset.id } })
+            expect(updated?.status).toBe(AssetStatus.uploaded)
+          }
+        },
+      )
+
+      it('should keep the resolved media type, charset included, when routing to transcode_text', async () => {
+        await setTextPreviewMode('raw')
+        const asset = await uploadFile('package.json', 'application/octet-stream')
+
+        const updated = await prisma.asset.findUnique({ where: { id: asset.id } })
+        expect(updated?.mediaType).toBe('application/json;charset=utf-8')
+        expect(await taskTypesFor(asset.id)).toEqual([WorkflowTaskType.transcode_text])
+      })
+
+      it.each(CODE_EXTENSIONS)(
+        'should leave .%s without a preview when the team converts text files to PDF',
+        async (ext) => {
+          const unset = await uploadFile(`unset.${ext}`, 'text/plain')
+          expect(await taskTypesFor(unset.id)).toEqual([])
+
+          await setTextPreviewMode('pdf')
+          for (const [index, mediaType] of CLIENT_MEDIA_TYPES.entries()) {
+            const asset = await uploadFile(`file-${index}.${ext}`, mediaType)
+
+            expect(await taskTypesFor(asset.id), `${ext} ${mediaType}`).toEqual([])
+            const updated = await prisma.asset.findUnique({ where: { id: asset.id } })
+            expect(updated?.status).toBe(AssetStatus.processed)
+            expect(updated?.media).toBeNull()
+          }
+        },
+      )
+
+      it('should keep converting md and txt files to PDF in pdf mode', async () => {
+        await setTextPreviewMode('pdf')
+
+        for (const [name, mediaType] of [
+          ['notes.md', 'text/markdown'],
+          ['guide.md', ''],
+          ['readme.txt', 'text/plain'],
+          ['charset.txt', 'text/plain;charset=utf-8'],
+          ['unknown.txt', 'application/octet-stream'],
+        ]) {
+          const asset = await uploadFile(name, mediaType)
+          expect(await taskTypesFor(asset.id), name).toEqual([WorkflowTaskType.transcode_pdf])
+        }
+      })
+
+      it('should keep persisted proxy types of code files when the mode changes', async () => {
+        await setTextPreviewMode('raw')
+        const legacyLog = await uploadFile('legacy.log', 'text/plain', {
+          proxyType: 'pdf',
+        } as PrismaJson.MediaInfo)
+        expect(await taskTypesFor(legacyLog.id)).toEqual([WorkflowTaskType.transcode_pdf])
+
+        await setTextPreviewMode('pdf')
+        const rawJson = await uploadFile('raw.json', 'application/json', {
+          proxyType: 'text',
+        } as PrismaJson.MediaInfo)
+        expect(await taskTypesFor(rawJson.id)).toEqual([WorkflowTaskType.transcode_text])
+      })
+
+      it('should not touch existing files when the team switches the text preview mode', async () => {
+        const media = { proxyType: 'pdf' } as PrismaJson.MediaInfo
+        const existing = await prisma.asset.create({
+          data: {
+            name: 'existing.log',
+            type: AssetType.file,
+            project: { connect: { id: projectId } },
+            parent: { connect: { id: parentId } },
+            status: AssetStatus.processed,
+            mediaType: 'text/plain',
+            media,
+          },
+        })
+
+        await teamService.updateSettings(teamId, 'transcode.textPreviewMode', 'raw')
+
+        const after = await prisma.asset.findUnique({ where: { id: existing.id } })
+        expect((after?.media as PrismaJson.MediaInfo | null)?.proxyType).toBe('pdf')
+        expect(after?.status).toBe(AssetStatus.processed)
+        expect(await taskTypesFor(existing.id)).toEqual([])
+      })
+
+      it('should not treat .ts, .mts or .env files as code by their extension', async () => {
+        await setTextPreviewMode('raw')
+
+        for (const [name, mediaType] of [
+          ['main.ts', ''],
+          ['main-octet.ts', 'application/octet-stream'],
+          ['main-js.ts', 'text/javascript;charset=utf-8'],
+          ['module.mts', ''],
+          ['module-octet.mts', 'application/octet-stream'],
+          ['prod.env', ''],
+          ['prod-octet.env', 'application/octet-stream'],
+        ]) {
+          const asset = await uploadFile(name, mediaType)
+          expect(await taskTypesFor(asset.id), name).toEqual([])
+          const updated = await prisma.asset.findUnique({ where: { id: asset.id } })
+          expect(updated?.status).toBe(AssetStatus.processed)
+        }
+
+        const clip = await uploadFile('clip.ts', 'video/mp2t')
+        expect(await taskTypesFor(clip.id)).toEqual([WorkflowTaskType.transcode_video])
+        const avchd = await uploadFile('clip.mts', 'video/mp2t')
+        expect(await taskTypesFor(avchd.id)).toEqual([WorkflowTaskType.transcode_video])
+      })
+
+      it('should keep CSV, HTML, Office, PDF, image, audio and video handling in raw mode', async () => {
+        vi.spyOn(gotenbergService, 'isAvailable').mockResolvedValue(true)
+        await setTextPreviewMode('raw')
+
+        const cases: [string, string, WorkflowTaskType][] = [
+          ['table.csv', 'text/csv', WorkflowTaskType.transcode_pdf],
+          ['page.html', 'text/html', WorkflowTaskType.transcode_pdf],
+          [
+            'letter.docx',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            WorkflowTaskType.transcode_pdf,
+          ],
+          ['scan.pdf', 'application/pdf', WorkflowTaskType.transcode_pdf],
+          ['photo.png', 'image/png', WorkflowTaskType.transcode_image],
+          ['song.mp3', 'audio/mpeg', WorkflowTaskType.transcode_video],
+          ['clip.mp4', 'video/mp4', WorkflowTaskType.transcode_video],
+        ]
+        for (const [name, mediaType, expected] of cases) {
+          const asset = await uploadFile(name, mediaType)
+          expect(await taskTypesFor(asset.id), name).toEqual([expected])
+        }
+      })
     })
   })
 

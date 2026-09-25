@@ -53,4 +53,12 @@ describe('isMarkdownFile', () => {
     expect(isMarkdownFile(file('doc.markdown'))).toBe(true)
     expect(isMarkdownFile(file('notes.txt'))).toBe(false)
   })
+
+  it('never treats code and config files as Markdown', () => {
+    expect(isMarkdownFile(file('settings.json', 'plain'))).toBe(false)
+    expect(isMarkdownFile(file('tool.py', 'plain'))).toBe(false)
+    expect(isMarkdownFile(file('config.yaml'))).toBe(false)
+    expect(isMarkdownFile(file('server.log'))).toBe(false)
+    expect(isMarkdownFile(file('captions.vtt'))).toBe(false)
+  })
 })

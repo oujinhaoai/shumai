@@ -319,4 +319,86 @@ describe('TextViewer', () => {
       expect(screen.queryByText('text_view_source')).toBeNull()
     })
   })
+
+  describe('code and config files', () => {
+    /** A text proxy recorded without a format, as older proxies were. */
+    const withoutFormat = (name: string) => makeFile({ name }, { format: undefined })
+
+    const lineTexts = () =>
+      Array.from(document.querySelectorAll('[data-testid="text-viewer-lines"] [data-line]')).map(
+        (row) => row.textContent,
+      )
+
+    it('shows a JSON file as its original, unformatted text with line numbers', async () => {
+      const json = [
+        '{"name":"shumai","tags":["a","b"],',
+        '    "nested":{"z":1,"a":[1,2]},',
+        '  "ok":true}',
+      ].join('\n')
+      mockFetchText(`${json}\n`)
+      renderViewer(makeFile({ name: 'settings.json' }))
+
+      await screen.findByText('{"name":"shumai","tags":["a","b"],')
+      expect(lineTexts()).toEqual([
+        '1{"name":"shumai","tags":["a","b"],',
+        '2    "nested":{"z":1,"a":[1,2]},',
+        '3  "ok":true}',
+      ])
+      expect(screen.getByTestId('text-viewer-line-indicator').textContent).toContain(
+        'line_of_lines {"current":1,"total":3}',
+      )
+    })
+
+    it('never renders Markdown for code, even when the text looks like Markdown', async () => {
+      mockFetchText(
+        ['# Heading-like comment', '- not a list', 'def main():', '\tprint("**hi**")'].join('\n'),
+      )
+      renderViewer(makeFile({ name: 'tool.py' }))
+
+      await screen.findByText('# Heading-like comment')
+      expect(screen.queryByTestId('text-viewer-markdown')).toBeNull()
+      expect(screen.queryByRole('heading')).toBeNull()
+      expect(screen.queryByRole('list')).toBeNull()
+      expect(lineTexts()).toEqual([
+        '1# Heading-like comment',
+        '2- not a list',
+        '3def main():',
+        '4\tprint("**hi**")',
+      ])
+    })
+
+    it.each(['config.yaml', 'app.log', 'query.sql', 'captions.vtt', 'tool.py'])(
+      'offers no Markdown view switch for %s, even without a recorded format',
+      async (name) => {
+        mockFetchText('# first line\nsecond line')
+        renderViewer(withoutFormat(name))
+
+        await screen.findByText('# first line')
+        expect(screen.queryByText('text_view_source')).toBeNull()
+        expect(screen.queryByText('text_view_rendered')).toBeNull()
+        expect(screen.queryByTestId('text-viewer-markdown')).toBeNull()
+        expect(lineTexts()).toEqual(['1# first line', '2second line'])
+      },
+    )
+
+    it('anchors comments to the clicked or sought line of a config file', async () => {
+      mockFetchText('[server]\nport = 8080\nhost = "0.0.0.0"\n')
+      const { ref, onTimeUpdate, onPlay } = renderViewer(makeFile({ name: 'config.toml' }))
+      await screen.findByText('port = 8080')
+
+      fireEvent.click(screen.getByText('port = 8080'))
+      expect(document.querySelector('[data-line="2"]')?.getAttribute('data-active')).toBe('true')
+      expect(onTimeUpdate).toHaveBeenLastCalledWith(2)
+      expect(onPlay).toHaveBeenCalled()
+      await waitFor(() => expect(ref.current?.getCurrentTime?.()).toBe(2))
+      expect(ref.current?.getDuration?.()).toBe(3)
+
+      act(() => ref.current?.seekTo(3))
+      await waitFor(() =>
+        expect(document.querySelector('[data-line="3"]')?.getAttribute('data-active')).toBe('true'),
+      )
+      expect(scrollToIndexMock).toHaveBeenLastCalledWith(2, { align: 'start' })
+      expect(onTimeUpdate).toHaveBeenLastCalledWith(3)
+    })
+  })
 })
