@@ -68,7 +68,7 @@ export function TextControlBar({
           <button
             onClick={onDownload}
             disabled={!canDownload}
-            className="flex items-center gap-1 text-xs font-medium px-2 py-1 sm:px-3 sm:py-1.5 rounded bg-muted hover:bg-accent text-foreground transition-colors border border-transparent disabled:opacity-50"
+            className="flex items-center gap-1 text-xs font-medium px-2 py-1 sm:px-3 sm:py-1.5 rounded bg-muted hover:bg-foreground/20 text-foreground transition-colors border border-transparent disabled:opacity-50"
             title={m.download_original_file()}
           >
             <Download size={14} />
