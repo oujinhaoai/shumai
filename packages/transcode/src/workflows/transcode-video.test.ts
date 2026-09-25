@@ -47,6 +47,9 @@ describe('transcodeVideoWorkflow', () => {
     extractPosterActivity: Object.assign(vi.fn(), {
       _activityName: 'extractPosterActivity',
     }),
+    markAssetTranscodeFailedActivity: Object.assign(vi.fn(), {
+      _activityName: 'markAssetTranscodeFailedActivity',
+    }),
   }
 
   beforeEach(() => {
@@ -700,6 +703,152 @@ describe('transcodeVideoWorkflow', () => {
     expect(mockActivities.updateTaskStatusActivity).toHaveBeenCalledWith({
       taskId: 'task-sdr-source',
       status: WorkflowTaskStatus.completed,
+    })
+  })
+
+  describe('when the transcode fails for good', () => {
+    const baseTask: WorkflowTask = {
+      id: 'task-broken',
+      assetId: 'asset-broken',
+      type: WorkflowTaskType.transcode_video,
+      status: WorkflowTaskStatus.pending,
+      sessionId: null,
+      output: null,
+      payload: {
+        projectId: 'proj-1',
+        transcode: { poster: true, sprite: true, videoStrategy: 'best_match', thumbnail: true },
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      heartbeat: null,
+      teamId: 'team-1',
+      projectId: 'proj-1',
+      uid: 'task-uid-broken',
+      model: null,
+      inputTokens: 0,
+      outputTokens: 0,
+    }
+    const reason = 'Video transcoding failed: ffmpeg exited with code 1'
+
+    beforeEach(() => {
+      mockActivities.getAssetActivity.mockResolvedValue({
+        id: 'asset-broken',
+        storageKey: { key: 'files/asset-broken/clip.mov' },
+        mediaType: 'video/quicktime',
+        status: 'processing',
+      })
+      mockActivities.getMediaInfoActivity.mockResolvedValue({
+        proxyType: 'video',
+        metadata: {
+          originalWidth: 1920,
+          originalHeight: 1080,
+          duration: 10,
+          frameRate: 30,
+          totalFrames: 300,
+          startTimecode: '00:00:00:00',
+          bitRate: 1000,
+          hasAudio: false,
+          format: {},
+        },
+        videoTranscodes: [],
+        imageTranscodes: [],
+      })
+      mockActivities.extractPosterActivity.mockResolvedValue({
+        poster: { key: 'files/asset-broken/poster.webp' },
+      })
+      mockActivities.generateSpriteActivity.mockResolvedValue({
+        sprite: { key: 'files/asset-broken/sprite.webp', frames: 100, tileX: 10, tileY: 10 },
+        poster: { key: 'files/asset-broken/poster.webp' },
+      })
+      mockActivities.transcodeVideoActivity.mockRejectedValue(new Error(reason))
+      mockActivities.markAssetTranscodeFailedActivity.mockResolvedValue(true)
+    })
+
+    it('keeps the saved poster and sprite, records the failure and finishes without throwing', async () => {
+      await expect(transcodeVideoWorkflow(baseTask)).resolves.toBeUndefined()
+
+      // Poster and sprite were saved before the proxy transcode failed; the failure is
+      // recorded on top of them afterwards.
+      expect(mockActivities.updateAssetMediaActivity).toHaveBeenCalledTimes(2)
+      expect(mockActivities.markAssetTranscodeFailedActivity).toHaveBeenCalledWith({
+        assetId: 'asset-broken',
+        taskType: 'transcode_video',
+        message: reason,
+      })
+      expect(mockActivities.updateAssetMediaActivity.mock.invocationCallOrder[1]).toBeLessThan(
+        mockActivities.markAssetTranscodeFailedActivity.mock.invocationCallOrder[0],
+      )
+      expect(mockActivities.updateTaskStatusActivity).toHaveBeenLastCalledWith({
+        taskId: 'task-broken',
+        status: 'failed',
+        output: { error: reason },
+      })
+      expect(mockActivities.updateAssetStatusActivity).not.toHaveBeenCalledWith({
+        assetId: 'asset-broken',
+        status: AssetStatus.processed,
+      })
+      // The failing transcode is not attempted again and nothing after it runs.
+      expect(mockActivities.transcodeVideoActivity).toHaveBeenCalledTimes(1)
+      expect(mockActivities.transcodeImageActivity).not.toHaveBeenCalled()
+      expect(mockActivities.createEmbeddingTaskIfEnabledActivity).not.toHaveBeenCalled()
+      expect(mockActivities.createAutofillTaskIfEnabledActivity).not.toHaveBeenCalled()
+      expect(mockActivities.cleanupTmpDirActivity).toHaveBeenCalledWith({ tmpDir: '/tmp' })
+    })
+
+    it('handles audio files the same way', async () => {
+      mockActivities.getAssetActivity.mockResolvedValue({
+        id: 'asset-broken',
+        storageKey: { key: 'files/asset-broken/voice.wav' },
+        mediaType: 'audio/wav',
+        status: 'processing',
+      })
+      mockActivities.getMediaInfoActivity.mockResolvedValue({
+        proxyType: 'audio',
+        metadata: {
+          originalWidth: 0,
+          originalHeight: 0,
+          duration: 3,
+          frameRate: 0,
+          totalFrames: 0,
+          startTimecode: '00:00:00:00',
+          bitRate: 128000,
+          hasAudio: true,
+          format: {},
+        },
+        videoTranscodes: [],
+        imageTranscodes: [],
+      })
+      mockActivities.transcodeAudioActivity.mockRejectedValue(
+        new Error('Audio transcoding failed: invalid data found when processing input'),
+      )
+
+      await expect(
+        transcodeVideoWorkflow({ ...baseTask, payload: { projectId: 'proj-1', transcode: {} } }),
+      ).resolves.toBeUndefined()
+
+      expect(mockActivities.markAssetTranscodeFailedActivity).toHaveBeenCalledWith({
+        assetId: 'asset-broken',
+        taskType: 'transcode_video',
+        message: 'Audio transcoding failed: invalid data found when processing input',
+      })
+      expect(mockActivities.transcodeAudioActivity).toHaveBeenCalledTimes(1)
+      expect(mockActivities.updateTaskStatusActivity).toHaveBeenLastCalledWith(
+        expect.objectContaining({ taskId: 'task-broken', status: 'failed' }),
+      )
+    })
+
+    it('leaves the asset to the guarded activity when it was trashed meanwhile', async () => {
+      mockActivities.markAssetTranscodeFailedActivity.mockResolvedValue(false)
+
+      await expect(transcodeVideoWorkflow(baseTask)).resolves.toBeUndefined()
+
+      expect(mockActivities.updateAssetStatusActivity).not.toHaveBeenCalledWith({
+        assetId: 'asset-broken',
+        status: AssetStatus.processed,
+      })
+      expect(mockActivities.updateTaskStatusActivity).toHaveBeenLastCalledWith(
+        expect.objectContaining({ taskId: 'task-broken', status: 'failed' }),
+      )
     })
   })
 })

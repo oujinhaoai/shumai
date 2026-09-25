@@ -57,6 +57,17 @@ export const ancestorFolderSchema = z.object({
 })
 export type AncestorFolder = z.infer<typeof ancestorFolderSchema>
 
+/**
+ * Why the last transcode of a file failed for good. The file is marked processed anyway,
+ * without a preview; a later successful transcode removes it.
+ */
+export const transcodeErrorSchema = z.object({
+  taskType: z.string(),
+  message: z.string(),
+  failedAt: z.string(),
+})
+export type TranscodeError = z.infer<typeof transcodeErrorSchema>
+
 export const mediaMetadataSchema = z.object({
   duration: z.number().optional(),
   originalWidth: z.number().optional(),
@@ -135,6 +146,7 @@ export const assetInfoSchema = z.object({
         .optional(),
       proxyType: z.enum(['image', 'video', 'audio', 'pdf', 'text']).nullable().optional(),
       metadata: mediaMetadataSchema.optional(),
+      transcodeError: transcodeErrorSchema.optional(),
     })
     .optional(),
   ancestorFolders: z.array(ancestorFolderSchema).optional(),

@@ -44,6 +44,9 @@ describe('transcodePdfWorkflow', () => {
     createAutofillTaskIfEnabledActivity: Object.assign(vi.fn(), {
       _activityName: 'createAutofillTaskIfEnabledActivity',
     }),
+    markAssetTranscodeFailedActivity: Object.assign(vi.fn(), {
+      _activityName: 'markAssetTranscodeFailedActivity',
+    }),
   }
 
   beforeEach(() => {
@@ -158,6 +161,95 @@ describe('transcodePdfWorkflow', () => {
       assetId: 'asset-pdf',
       teamId: 'team-1',
       projectId: 'proj-1',
+    })
+  })
+
+  describe('when the transcode fails for good', () => {
+    const task: WorkflowTask = {
+      id: 'task-bad-pdf',
+      assetId: 'asset-bad-pdf',
+      type: WorkflowTaskType.transcode_pdf,
+      status: WorkflowTaskStatus.pending,
+      sessionId: null,
+      output: null,
+      payload: { projectId: 'proj-1', transcode: { sprite: true, poster: true } },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      heartbeat: null,
+      teamId: 'team-1',
+      projectId: 'proj-1',
+      uid: 'task-uid-bad-pdf',
+      model: null,
+      inputTokens: 0,
+      outputTokens: 0,
+    }
+    const reason = "Failed to get media info: Syntax Error: Couldn't find trailer dictionary"
+
+    beforeEach(() => {
+      mockActivities.getAssetActivity.mockResolvedValue({
+        id: 'asset-bad-pdf',
+        name: 'broken.pdf',
+        storageKey: { key: 'files/asset-bad-pdf/broken.pdf' },
+        mediaType: 'application/pdf',
+        status: 'processing',
+      })
+      mockActivities.getMediaInfoActivity.mockRejectedValue(new Error(reason))
+      mockActivities.markAssetTranscodeFailedActivity.mockResolvedValue(true)
+    })
+
+    it('fails the task, records the failure on the asset and finishes without throwing', async () => {
+      await expect(transcodePdfWorkflow(task)).resolves.toBeUndefined()
+
+      expect(mockActivities.markAssetTranscodeFailedActivity).toHaveBeenCalledWith({
+        assetId: 'asset-bad-pdf',
+        taskType: 'transcode_pdf',
+        message: reason,
+      })
+      expect(mockActivities.updateTaskStatusActivity).toHaveBeenLastCalledWith({
+        taskId: 'task-bad-pdf',
+        status: 'failed',
+        output: { error: reason },
+      })
+      expect(mockActivities.updateAssetStatusActivity).toHaveBeenCalledTimes(1)
+      expect(mockActivities.updateAssetStatusActivity).toHaveBeenCalledWith({
+        assetId: 'asset-bad-pdf',
+        status: AssetStatus.processing,
+      })
+      expect(mockActivities.getMediaInfoActivity).toHaveBeenCalledTimes(1)
+      expect(mockActivities.generateSpriteActivity).not.toHaveBeenCalled()
+      expect(mockActivities.updateAssetMediaActivity).not.toHaveBeenCalled()
+      expect(mockActivities.createAutofillTaskIfEnabledActivity).not.toHaveBeenCalled()
+      expect(mockActivities.cleanupTmpDirActivity).toHaveBeenCalledWith({ tmpDir: '/tmp' })
+    })
+
+    it('handles a document that cannot be converted to PDF the same way', async () => {
+      mockActivities.generatePdfProxyActivity.mockRejectedValue(
+        new Error('Gotenberg conversion failed: 503 Service Unavailable'),
+      )
+
+      await expect(transcodePdfWorkflow(task)).resolves.toBeUndefined()
+
+      expect(mockActivities.generatePdfProxyActivity).toHaveBeenCalledTimes(1)
+      expect(mockActivities.markAssetTranscodeFailedActivity).toHaveBeenCalledWith({
+        assetId: 'asset-bad-pdf',
+        taskType: 'transcode_pdf',
+        message: 'Gotenberg conversion failed: 503 Service Unavailable',
+      })
+      expect(mockActivities.getMediaInfoActivity).not.toHaveBeenCalled()
+    })
+
+    it('leaves the asset to the guarded activity when it was trashed meanwhile', async () => {
+      mockActivities.markAssetTranscodeFailedActivity.mockResolvedValue(false)
+
+      await expect(transcodePdfWorkflow(task)).resolves.toBeUndefined()
+
+      expect(mockActivities.updateAssetStatusActivity).not.toHaveBeenCalledWith({
+        assetId: 'asset-bad-pdf',
+        status: AssetStatus.processed,
+      })
+      expect(mockActivities.updateTaskStatusActivity).toHaveBeenLastCalledWith(
+        expect.objectContaining({ taskId: 'task-bad-pdf', status: 'failed' }),
+      )
     })
   })
 })

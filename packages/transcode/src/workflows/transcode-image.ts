@@ -5,7 +5,7 @@ import {
   getWorkerQueueAndStartTask,
   fetchAssetWithKey,
   completeTask,
-  failTask,
+  finishFailedTranscode,
   cleanupTmpDir,
 } from './common'
 
@@ -105,8 +105,7 @@ export async function transcodeImageWorkflow(task: WorkflowTask): Promise<void> 
     await completeTask(workerQueue, task.id)
   } catch (err) {
     console.error(`transcodeImageWorkflow failed for task ${task.id}:`, err)
-    await failTask(workerQueue, task.id, err)
-    throw err
+    await finishFailedTranscode(workerQueue, task, err, 'transcode_image')
   } finally {
     await cleanupTmpDir(workerQueue, tmpDir)
   }

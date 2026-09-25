@@ -49,6 +49,9 @@ describe('transcodeMedia Fallback Dispatcher', () => {
       _activityName: 'createAutofillTaskIfEnabledActivity',
     }),
     cleanupTmpDirActivity: Object.assign(vi.fn(), { _activityName: 'cleanupTmpDirActivity' }),
+    markAssetTranscodeFailedActivity: Object.assign(vi.fn(), {
+      _activityName: 'markAssetTranscodeFailedActivity',
+    }),
   }
 
   beforeEach(() => {
@@ -152,7 +155,7 @@ describe('transcodeMedia Fallback Dispatcher', () => {
     expect(mockActivities.generatePdfProxyActivity).not.toHaveBeenCalled()
   })
 
-  it('should handle failures and update task status with error', async () => {
+  it('should handle failures: fail the task, record the failure on the asset and finish', async () => {
     const task: WorkflowTask = {
       id: 'task-fail',
       assetId: 'asset-1',
@@ -175,9 +178,15 @@ describe('transcodeMedia Fallback Dispatcher', () => {
     }
 
     mockActivities.getAssetActivity.mockRejectedValue(new Error('FFmpeg failed'))
+    mockActivities.markAssetTranscodeFailedActivity.mockResolvedValue(true)
 
-    await expect(transcodeMedia(task)).rejects.toThrow('FFmpeg failed')
+    await expect(transcodeMedia(task)).resolves.toBeUndefined()
 
+    expect(mockActivities.markAssetTranscodeFailedActivity).toHaveBeenCalledWith({
+      assetId: 'asset-1',
+      taskType: 'transcode',
+      message: 'FFmpeg failed',
+    })
     expect(mockActivities.updateTaskStatusActivity).toHaveBeenCalledWith({
       taskId: 'task-fail',
       status: WorkflowTaskStatus.failed,

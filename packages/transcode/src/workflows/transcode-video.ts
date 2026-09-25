@@ -5,7 +5,7 @@ import {
   getWorkerQueueAndStartTask,
   fetchAssetWithKey,
   completeTask,
-  failTask,
+  finishFailedTranscode,
   cleanupTmpDir,
 } from './common'
 import { getTargetVideoResolutions, resolutionToDimensions } from './transcode-utils'
@@ -236,8 +236,7 @@ export async function transcodeVideoWorkflow(task: WorkflowTask): Promise<void> 
     await completeTask(workerQueue, task.id)
   } catch (err) {
     console.error(`transcodeVideoWorkflow failed for task ${task.id}:`, err)
-    await failTask(workerQueue, task.id, err)
-    throw err
+    await finishFailedTranscode(workerQueue, task, err, 'transcode_video')
   } finally {
     await cleanupTmpDir(workerQueue, tmpDir)
   }

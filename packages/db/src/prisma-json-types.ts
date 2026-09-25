@@ -185,6 +185,19 @@ declare global {
       format?: 'markdown' | 'plain'
     }
 
+    /**
+     * Why the last transcode of an asset failed for good. The asset is marked processed
+     * anyway so it no longer shows as in progress; a later successful transcode drops it.
+     */
+    export interface TranscodeError {
+      /** Type of the workflow task whose final attempt failed, e.g. `transcode_image`. */
+      taskType: string
+      /** Failure reason, at most 500 characters. */
+      message: string
+      /** ISO 8601 time of the failure. */
+      failedAt: string
+    }
+
     export interface MediaInfo {
       duration: number
       filesize: number
@@ -201,6 +214,8 @@ declare global {
       finishedAt: string
       metadata: Metadata | null
       original: OriginalInfo | null
+      /** Set when the last transcode failed; absent on assets that transcoded fine. */
+      transcodeError?: TranscodeError
     }
 
     // ----------------------------------------------------------------------
