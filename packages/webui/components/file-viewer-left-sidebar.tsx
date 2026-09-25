@@ -120,7 +120,7 @@ export const FileViewerLeftSidebar: FC<FileViewerLeftSidebarProps> = ({
   }, [files, currentAssetId])
 
   return (
-    <div className="h-24 md:h-full w-full md:w-24 bg-gray-100 dark:bg-gray-950 flex flex-row md:flex-col flex-shrink-0 select-none">
+    <div className="h-24 md:h-full w-full md:w-24 bg-muted flex flex-row md:flex-col flex-shrink-0 select-none">
       <div className="flex-1 overflow-x-auto overflow-y-hidden md:overflow-y-auto md:overflow-x-hidden px-4 md:px-0 py-2 md:py-4 flex flex-row md:flex-col items-center gap-3 no-scrollbar">
         {files.map((file) => {
           if (!file) return null

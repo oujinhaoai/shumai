@@ -19,6 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - **transcode**: Optimize video sprite generation for large and long videos using a concurrent fast-seek pool and image compositing, avoiding full-video decoding while preserving instant single-pass generation for short clips
+- **webui**: Make the file viewer's background, thumbnail strip, and bottom toolbar follow the app's light and dark theme colors, so images, PDFs, and files without a preview match the rest of the app; in dark mode the viewing area is now a neutral dark gray instead of a bluish near-black
 
 ## [0.4.8] - 2026-09-24
 
