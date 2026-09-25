@@ -637,6 +637,7 @@
   "open_navigation_menu": "Open navigation menu",
 
   "preview_unavailable": "Preview unavailable",
+  "preview_transcode_failed_reason": "Transcoding failed: {reason}",
   "download_original_file": "Download original file",
   "zoom_out": "Zoom Out",
   "zoom_in": "Zoom In",

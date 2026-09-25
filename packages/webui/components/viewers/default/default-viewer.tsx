@@ -38,12 +38,22 @@ export const DefaultViewer = React.forwardRef<MediaController, FileViewerProps>(
       }
     }
 
+    const transcodeError = file.media?.transcodeError
+
     return (
       <div className="flex flex-col flex-1 h-full overflow-hidden bg-muted relative">
         <div className="flex-1 flex flex-col-reverse md:flex-row min-h-0 relative">
           {children}
-          <div className="flex-1 flex items-center justify-center">
+          <div className="flex-1 flex flex-col items-center justify-center gap-1 min-w-0 px-6">
             <p className="text-muted-foreground">{m.preview_unavailable()}</p>
+            {transcodeError && (
+              <p
+                className="max-w-full truncate text-xs text-muted-foreground"
+                title={transcodeError.message}
+              >
+                {m.preview_transcode_failed_reason({ reason: transcodeError.message })}
+              </p>
+            )}
           </div>
         </div>
         <div className="relative px-4 py-3 bg-card border-t border-border z-10 flex items-center justify-end gap-2 transition-colors duration-200">

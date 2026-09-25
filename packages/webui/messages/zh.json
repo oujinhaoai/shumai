@@ -637,6 +637,7 @@
   "open_navigation_menu": "打开导航菜单",
 
   "preview_unavailable": "无法预览",
+  "preview_transcode_failed_reason": "转码失败：{reason}",
   "download_original_file": "下载原始文件",
   "zoom_out": "缩小",
   "zoom_in": "放大",

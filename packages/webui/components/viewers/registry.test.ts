@@ -41,4 +41,23 @@ describe('viewer registry', () => {
     expect(hidesAnnotationControl({ proxyType: 'image' })).toBe(false)
     expect(hidesAnnotationControl(null)).toBe(false)
   })
+
+  it('shows files whose transcode failed in the default viewer, whatever their proxy type', () => {
+    const transcodeError = {
+      taskType: 'transcode_video',
+      message: 'Video transcoding failed: ffmpeg exited with code 1',
+      failedAt: '2026-09-25T08:00:00.000Z',
+    }
+    for (const proxyType of ['image', 'video', 'audio', 'pdf', 'text', null] as const) {
+      const file = { id: 'a', name: 'clip.mov', proxyType, media: { transcodeError } } as AssetInfo
+      expect(getViewerForFile(file).id, String(proxyType)).toBe('default')
+    }
+  })
+
+  it('keeps the regular viewers for files without a transcode failure', () => {
+    const video = { id: 'a', name: 'clip.mov', proxyType: 'video', media: {} } as AssetInfo
+    const image = { id: 'b', name: 'photo.png', proxyType: 'image' } as AssetInfo
+    expect(getViewerForFile(video).id).toBe('video')
+    expect(getViewerForFile(image).id).toBe('image')
+  })
 })

@@ -2334,6 +2334,83 @@ describe('AssetService', () => {
       expect(containsStack).toBe(false)
       expect(info.ancestorFolders?.find((f) => f.id === parentFolder.id)).toBeDefined()
     })
+
+    it('returns the reason of a failed transcode in media, next to what the failed run kept', async () => {
+      const team = await prisma.team.create({ data: { name: 'Failed Transcode Team' } })
+      const project = await prisma.project.create({
+        data: { name: 'Failed Transcode Project', teamId: team.id },
+      })
+      const transcodeError = {
+        taskType: 'transcode_video',
+        message: 'Video transcoding failed: ffmpeg exited with code 1',
+        failedAt: '2026-09-25T08:00:00.000Z',
+      }
+      const clipKey = await prisma.storageKey.create({ data: { key: 'projects/failed/clip.mov' } })
+      const asset = await prisma.asset.create({
+        data: {
+          name: 'clip.mov',
+          type: AssetType.file,
+          projectId: project.id,
+          status: AssetStatus.processed,
+          mediaType: 'video/quicktime',
+          storageKeyId: clipKey.id,
+          media: {
+            duration: 12,
+            filesize: 0,
+            frames: 288,
+            proxyType: 'video',
+            imageTranscodes: [],
+            videoTranscodes: [],
+            poster: { key: 'projects/failed/poster.webp' },
+            finishedAt: '2026-09-25T07:59:00.000Z',
+            metadata: null,
+            original: null,
+            transcodeError,
+          },
+        },
+      })
+
+      const info = await assetService.getAsset({ assetId: asset.id })
+
+      expect(info.status).toBe(AssetStatus.processed)
+      expect(info.media?.transcodeError).toEqual(transcodeError)
+      expect(info.media?.original?.key).toBe('projects/failed/clip.mov')
+      expect(info.preview?.thumbnailUrl).toBe('http://mock-s3-url')
+    })
+
+    it('returns media without a transcode failure for files that transcoded fine', async () => {
+      const team = await prisma.team.create({ data: { name: 'Fine Transcode Team' } })
+      const project = await prisma.project.create({
+        data: { name: 'Fine Transcode Project', teamId: team.id },
+      })
+      const photoKey = await prisma.storageKey.create({ data: { key: 'projects/fine/photo.png' } })
+      const asset = await prisma.asset.create({
+        data: {
+          name: 'photo.png',
+          type: AssetType.file,
+          projectId: project.id,
+          status: AssetStatus.processed,
+          mediaType: 'image/png',
+          storageKeyId: photoKey.id,
+          media: {
+            duration: 0,
+            filesize: 0,
+            frames: 0,
+            proxyType: 'image',
+            imageTranscodes: [],
+            videoTranscodes: [],
+            finishedAt: '2026-09-25T07:59:00.000Z',
+            metadata: null,
+            original: null,
+          },
+        },
+      })
+
+      const info = await assetService.getAsset({ assetId: asset.id })
+
+      expect(info.media?.transcodeError).toBeUndefined()
+      expect(info.proxyType).toBe('image')
+    })
   })
 
   describe('getStackVersions', () => {
