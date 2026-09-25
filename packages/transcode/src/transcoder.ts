@@ -137,7 +137,7 @@ export class PdfTranscoder {
 
 /**
  * Submits a `transcode_text` task that prepares a UTF-8 text proxy for
- * Markdown/plain-text uploads previewed as their original text.
+ * Markdown, plain-text, code and config uploads previewed as their original text.
  */
 export class TextTranscoder {
   constructor(
