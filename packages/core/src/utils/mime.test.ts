@@ -12,6 +12,7 @@ import {
   isTxtDocument,
   normalizeMediaType,
   supportsRawTextPreview,
+  UNDECODABLE_IMAGE_EXTENSIONS,
 } from './mime'
 
 /** Code and config extensions that must get the raw text preview. */
@@ -286,5 +287,79 @@ describe('getProxyType', () => {
   it('should return null for unsupported files', () => {
     expect(getProxyType('application/zip', 'archive.zip')).toBeNull()
     expect(getProxyType(null, 'unknown.bin')).toBeNull()
+  })
+
+  describe('image formats that cannot be decoded', () => {
+    /** Media types clients report for these files, besides octet-stream or nothing. */
+    const REPORTED_TYPES: Record<string, string[]> = {
+      exr: ['image/aces', 'image/x-exr'],
+      hdr: ['image/vnd.radiance', 'image/x-hdr'],
+      tga: ['image/x-tga', 'image/x-targa'],
+      dds: ['image/vnd.ms-dds', 'image/x-dds'],
+      bmp: ['image/x-ms-bmp', 'image/bmp'],
+      jp2: ['image/jp2'],
+    }
+
+    it('lists the formats that sharp fails to decode', () => {
+      expect(UNDECODABLE_IMAGE_EXTENSIONS).toEqual(['.exr', '.hdr', '.tga', '.dds', '.bmp', '.jp2'])
+    })
+
+    it.each(Object.entries(REPORTED_TYPES))(
+      'gives .%s files no preview whatever media type is reported, in any letter case',
+      (ext, reportedTypes) => {
+        const names = [
+          `render.${ext}`,
+          `RENDER.${ext.toUpperCase()}`,
+          `shot_010.v2.${ext[0].toUpperCase()}${ext.slice(1)}`,
+        ]
+        for (const mediaType of [
+          'application/octet-stream',
+          '',
+          null,
+          undefined,
+          ...reportedTypes,
+        ]) {
+          for (const name of names) {
+            expect(getProxyType(mediaType, name), `${name} ${mediaType}`).toBeNull()
+          }
+        }
+      },
+    )
+
+    it('gives no preview to the media type Bun infers from the name either', () => {
+      for (const ext of UNDECODABLE_IMAGE_EXTENSIONS) {
+        for (const name of [`x${ext}`, `X${ext.toUpperCase()}`]) {
+          expect(getProxyType(Bun.file(name).type, name), name).toBeNull()
+        }
+      }
+    })
+
+    it('keeps the image preview for formats that decode', () => {
+      const decodable: [string, string][] = [
+        ['image/png', 'photo.png'],
+        ['image/jpeg', 'photo.jpg'],
+        ['image/jpeg', 'PHOTO.JPEG'],
+        ['image/webp', 'photo.webp'],
+        ['image/gif', 'anim.gif'],
+        ['image/tiff', 'scan.tif'],
+        ['image/tiff', 'scan.TIFF'],
+        ['image/avif', 'photo.avif'],
+        ['image/vnd.adobe.photoshop', 'design.psd'],
+        ['application/octet-stream', 'design.psd'],
+        ['image/x-adobe-dng', 'raw.dng'],
+      ]
+      for (const [mediaType, name] of decodable) {
+        expect(getProxyType(mediaType, name), name).toBe('image')
+      }
+    })
+
+    it('leaves video, audio, PDF and text handling unchanged', () => {
+      expect(getProxyType('video/mp4', 'clip.mp4')).toBe('video')
+      expect(getProxyType('audio/mpeg', 'song.mp3')).toBe('audio')
+      expect(getProxyType('application/pdf', 'doc.pdf')).toBe('pdf')
+      expect(getProxyType('text/markdown', 'README.md')).toBe('pdf')
+      expect(getProxyType('text/plain', 'notes.txt')).toBe('pdf')
+      expect(getProxyType('application/json', 'settings.json')).toBeNull()
+    })
   })
 })

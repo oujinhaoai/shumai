@@ -7,6 +7,11 @@ import { s3Service } from '@shumai/core/src/s3/s3'
 import { fileURLToPath } from 'url'
 import * as path from 'path'
 import * as fs from 'fs'
+import {
+  expectFailureRecorded,
+  expectNotRunAgain,
+  generateImage,
+} from './transcode-failure-helpers'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const transcodeWorkflowsPath = path.resolve(currentDir, '../../../apps/transcode/src/workflows.ts')
@@ -214,5 +219,127 @@ describe.each(['local', 'temporal'] as const)(
       expect(mediaInfo.imageTranscodes.length).toBeGreaterThan(0)
       expect(mediaInfo.thumbnail).toBeDefined()
     }, 50000)
+
+    const bucket = 'shumai-e2e-test-bucket-transcode'
+
+    async function seedImage(
+      name: string,
+      mediaType: string,
+      content: Buffer,
+      state: { status: AssetStatus; isDeleted: boolean } = {
+        status: AssetStatus.uploaded,
+        isDeleted: false,
+      },
+    ) {
+      const team = await prisma.team.create({ data: { name: `E2E Image ${name}` } })
+      const project = await prisma.project.create({
+        data: { name: `E2E Image ${name}`, teamId: team.id },
+      })
+      const key = `projects/e2e-image/${mode}/${name}`
+      const storageKey = await prisma.storageKey.create({ data: { key } })
+      const asset = await prisma.asset.create({
+        data: {
+          name,
+          type: 'file',
+          mediaType,
+          projectId: project.id,
+          storageKeyId: storageKey.id,
+          ...state,
+        },
+      })
+      await s3Service.putObject(bucket, key, content, content.length, mediaType)
+      const createTask = () =>
+        prisma.workflowTask.create({
+          data: {
+            type: 'transcode_image',
+            status: 'pending',
+            assetId: asset.id,
+            projectId: project.id,
+            teamId: team.id,
+            payload: { projectId: project.id, transcode: { thumbnail: true } },
+          },
+        })
+      return { asset, key, createTask }
+    }
+
+    it('should finish a failed transcode of a 32-bit float EXR instead of leaving it processing', async () => {
+      const { asset, key, createTask } = await seedImage(
+        'render.exr',
+        'image/aces',
+        generateImage('exr'),
+      )
+      const task = await createTask()
+
+      await expect(workflowService.executeWait(task, 45000)).rejects.toThrow(
+        'Input file contains unsupported image format',
+      )
+
+      await expectFailureRecorded({
+        assetId: asset.id,
+        taskId: task.id,
+        taskType: 'transcode_image',
+        message: /^Failed to get media info: Input file contains unsupported image format/,
+      })
+      await expectNotRunAgain(mode, task)
+
+      // A later successful transcode of the same asset drops the recorded failure.
+      const png = fs.readFileSync(path.join(fixturesDir, 'small.png'))
+      await s3Service.putObject(bucket, key, png, png.length, 'image/png')
+      const retry = await createTask()
+      expect((await workflowService.executeWait(retry, 45000)).status).toBe('completed')
+
+      const recovered = await prisma.asset.findUniqueOrThrow({ where: { id: asset.id } })
+      expect(recovered.status).toBe(AssetStatus.processed)
+      expect(recovered.media?.transcodeError).toBeUndefined()
+      expect(recovered.media?.proxyType).toBe('image')
+      expect(recovered.media?.imageTranscodes.length).toBeGreaterThan(0)
+    }, 100000)
+
+    it('should leave an asset moved to the trash while its transcode was queued in the trash', async () => {
+      const { asset, createTask } = await seedImage(
+        'trashed.exr',
+        'image/aces',
+        generateImage('exr'),
+        { status: AssetStatus.trashed, isDeleted: true },
+      )
+      const task = await createTask()
+
+      await expect(workflowService.executeWait(task, 45000)).rejects.toThrow(
+        'Input file contains unsupported image format',
+      )
+
+      const after = await prisma.asset.findUniqueOrThrow({ where: { id: asset.id } })
+      expect(after.status).toBe(AssetStatus.trashed)
+      expect(after.isDeleted).toBe(true)
+      expect(after.media).toBeNull()
+      await expectNotRunAgain(mode, task)
+    }, 60000)
+
+    it.each([
+      ['jpg', 'image/jpeg'],
+      ['webp', 'image/webp'],
+      ['gif', 'image/gif'],
+      ['tif', 'image/tiff'],
+    ] as const)(
+      'should still create an image proxy for a .%s file',
+      async (format, mediaType) => {
+        const { asset, createTask } = await seedImage(
+          `sample.${format}`,
+          mediaType,
+          generateImage(format),
+        )
+        const task = await createTask()
+
+        expect((await workflowService.executeWait(task, 45000)).status).toBe('completed')
+
+        const after = await prisma.asset.findUniqueOrThrow({ where: { id: asset.id } })
+        expect(after.status).toBe(AssetStatus.processed)
+        expect(after.media?.proxyType).toBe('image')
+        expect(after.media?.imageTranscodes[0]).toMatchObject({ width: 64, height: 48 })
+        expect(after.media?.thumbnail?.key).toBeTruthy()
+        expect(after.media?.transcodeError).toBeUndefined()
+      },
+      50000,
+    )
   },
 )

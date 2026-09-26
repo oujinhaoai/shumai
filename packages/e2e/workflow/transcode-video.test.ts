@@ -7,6 +7,7 @@ import { s3Service } from '@shumai/core/src/s3/s3'
 import { fileURLToPath } from 'url'
 import * as path from 'path'
 import * as fs from 'fs'
+import { expectFailureRecorded, expectNotRunAgain } from './transcode-failure-helpers'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const transcodeWorkflowsPath = path.resolve(currentDir, '../../../apps/transcode/src/workflows.ts')
@@ -221,5 +222,98 @@ describe.each(['local', 'temporal'] as const)(
       // Audio proxy key should end with -audio-proxy.mp4
       expect(mediaInfo.videoTranscodes[0].key).toContain('-audio-proxy.mp4')
     }, 50000)
+
+    const bucket = 'shumai-e2e-test-bucket-transcode'
+    // Not a video: ffprobe cannot read it, so the transcode fails for good.
+    const garbage = Buffer.from('this is not a video stream '.repeat(64))
+
+    async function seedVideo(
+      name: string,
+      content: Buffer,
+      state: { status: AssetStatus; isDeleted: boolean } = {
+        status: AssetStatus.uploaded,
+        isDeleted: false,
+      },
+    ) {
+      const team = await prisma.team.create({ data: { name: `E2E Video ${name}` } })
+      const project = await prisma.project.create({
+        data: { name: `E2E Video ${name}`, teamId: team.id },
+      })
+      const key = `projects/e2e-video/${mode}/${name}`
+      const storageKey = await prisma.storageKey.create({ data: { key } })
+      const asset = await prisma.asset.create({
+        data: {
+          name,
+          type: 'file',
+          mediaType: 'video/mp4',
+          projectId: project.id,
+          storageKeyId: storageKey.id,
+          ...state,
+        },
+      })
+      await s3Service.putObject(bucket, key, content, content.length, 'video/mp4')
+      const createTask = () =>
+        prisma.workflowTask.create({
+          data: {
+            type: 'transcode_video',
+            status: 'pending',
+            assetId: asset.id,
+            projectId: project.id,
+            teamId: team.id,
+            payload: {
+              projectId: project.id,
+              transcode: { videoStrategy: 'best_match', poster: true, sprite: true },
+            },
+          },
+        })
+      return { asset, key, createTask }
+    }
+
+    it('should finish a failed video transcode instead of leaving the asset processing', async () => {
+      const { asset, key, createTask } = await seedVideo('broken.mp4', garbage)
+      const task = await createTask()
+
+      await expect(workflowService.executeWait(task, 45000)).rejects.toThrow(
+        'Failed to get media info',
+      )
+
+      await expectFailureRecorded({
+        assetId: asset.id,
+        taskId: task.id,
+        taskType: 'transcode_video',
+        message: /^Failed to get media info: /,
+      })
+      await expectNotRunAgain(mode, task)
+
+      // A later successful transcode of the same asset drops the recorded failure.
+      const mp4 = fs.readFileSync(path.join(fixturesDir, 'small.mp4'))
+      await s3Service.putObject(bucket, key, mp4, mp4.length, 'video/mp4')
+      const retry = await createTask()
+      expect((await workflowService.executeWait(retry, 45000)).status).toBe('completed')
+
+      const recovered = await prisma.asset.findUniqueOrThrow({ where: { id: asset.id } })
+      expect(recovered.status).toBe(AssetStatus.processed)
+      expect(recovered.media?.transcodeError).toBeUndefined()
+      expect(recovered.media?.proxyType).toBe('video')
+      expect(recovered.media?.videoTranscodes.length).toBeGreaterThan(0)
+    }, 100000)
+
+    it('should leave an asset moved to the trash while its transcode was queued in the trash', async () => {
+      const { asset, createTask } = await seedVideo('trashed.mp4', garbage, {
+        status: AssetStatus.trashed,
+        isDeleted: true,
+      })
+      const task = await createTask()
+
+      await expect(workflowService.executeWait(task, 45000)).rejects.toThrow(
+        'Failed to get media info',
+      )
+
+      const after = await prisma.asset.findUniqueOrThrow({ where: { id: asset.id } })
+      expect(after.status).toBe(AssetStatus.trashed)
+      expect(after.isDeleted).toBe(true)
+      expect(after.media).toBeNull()
+      await expectNotRunAgain(mode, task)
+    }, 60000)
   },
 )

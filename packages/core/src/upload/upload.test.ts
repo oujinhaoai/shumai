@@ -724,6 +724,89 @@ describe('UploadService', () => {
     })
   })
 
+  describe('image formats that cannot be decoded', () => {
+    async function uploadImage(name: string, mediaType: string, media?: PrismaJson.MediaInfo) {
+      const task = await prisma.task.create({
+        data: { creatorId: userId, total: 1, uploaded: 0, type: 'upload' },
+      })
+      const asset = await prisma.asset.create({
+        data: {
+          name,
+          type: AssetType.file,
+          project: { connect: { id: projectId } },
+          parent: { connect: { id: parentId } },
+          status: AssetStatus.uploading,
+          storageKey: {
+            connectOrCreate: {
+              where: { key: `test-key-${name}` },
+              create: { key: `test-key-${name}` },
+            },
+          },
+          mediaType,
+          ...(media ? { media } : {}),
+        },
+      })
+      await uploadService.confirmFileUpload(userId, task.id, { fileId: asset.id })
+      return prisma.asset.findUniqueOrThrow({ where: { id: asset.id } })
+    }
+
+    async function taskTypesFor(assetId: string) {
+      const tasks = await prisma.workflowTask.findMany({ where: { assetId } })
+      return tasks.map((t) => t.type)
+    }
+
+    it.each([
+      'render.exr',
+      'RENDER.EXR',
+      'sky.hdr',
+      'sprite.tga',
+      'texture.dds',
+      'scan.bmp',
+      'photo.jp2',
+    ])('marks %s processed right away without a transcode task', async (name) => {
+      // The CLI reports application/octet-stream and some clients report nothing; the
+      // server then uses the type Bun infers from the name, which clients may also send.
+      const inferredType = Bun.file(name).type
+      for (const [index, reportedType] of [
+        'application/octet-stream',
+        '',
+        inferredType,
+      ].entries()) {
+        const asset = await uploadImage(`${index}-${name}`, reportedType)
+
+        expect(asset.status, `${name} reported as "${reportedType}"`).toBe(AssetStatus.processed)
+        expect(asset.mediaType).toBe(inferredType)
+        expect(asset.media).toBeNull()
+        expect(await taskTypesFor(asset.id), `${name} reported as "${reportedType}"`).toEqual([])
+      }
+    })
+
+    it('keeps the persisted proxy type of files uploaded before', async () => {
+      const asset = await uploadImage('legacy.exr', 'image/aces', {
+        proxyType: 'image',
+      } as PrismaJson.MediaInfo)
+
+      expect(await taskTypesFor(asset.id)).toEqual([WorkflowTaskType.transcode_image])
+    })
+
+    it('still creates image transcodes for formats that decode', async () => {
+      const decodable: [string, string][] = [
+        ['photo.png', 'image/png'],
+        ['photo.jpg', 'image/jpeg'],
+        ['photo.webp', 'image/webp'],
+        ['anim.gif', 'image/gif'],
+        ['scan.tif', 'image/tiff'],
+        ['design.psd', 'application/octet-stream'],
+      ]
+      for (const [name, mediaType] of decodable) {
+        const asset = await uploadImage(name, mediaType)
+
+        expect(asset.status, name).toBe(AssetStatus.uploaded)
+        expect(await taskTypesFor(asset.id), name).toEqual([WorkflowTaskType.transcode_image])
+      }
+    })
+  })
+
   it('should confirm file upload and resolve empty mediaType using Bun resolver for audio', async () => {
     const task = await prisma.task.create({
       data: { creatorId: userId, total: 1, uploaded: 0, type: 'upload' },

@@ -9,6 +9,7 @@ import { initAgentWorkflows } from '@shumai/agent'
 import { app } from '@shumai/api'
 import { assetService } from '@shumai/core/src/asset/asset'
 import { metadataService } from '@shumai/core/src/metadata/metadata'
+import { transcodeFailureService } from '@shumai/core/src/transcode/transcode-failure'
 import { initTranscodeWorkflows } from '@shumai/transcode'
 import { workflowService } from '@shumai/workflow-core'
 import { migrateLegacyAgentAvatars } from '@shumai/core/src/agent/migration'
@@ -57,6 +58,8 @@ async function run() {
   // Start services
   await metadataService.syncSystemFields().catch(console.error)
   await migrateLegacyAgentAvatars().catch(console.error)
+  // Assets that failed transcodes left in processing before failures were recorded.
+  await transcodeFailureService.recoverAssetsStuckAfterFailedTranscode().catch(console.error)
   assetService.startCleanupJob()
   workflowService.start()
   if (process.env.WORKFLOW_EXECUTOR === 'temporal') {

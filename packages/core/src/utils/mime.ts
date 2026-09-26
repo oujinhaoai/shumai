@@ -177,9 +177,33 @@ export function supportsRawTextPreview(
 }
 
 /**
+ * Image formats the preview pipeline cannot decode: sharp's bundled libvips has no loader
+ * for OpenEXR, Radiance HDR, Targa, DirectDraw Surface, BMP or JPEG 2000, and only
+ * Photoshop files go through ImageMagick. They are matched by extension, whatever media
+ * type the client reported or Bun inferred from the name (`image/aces`, `image/x-tga`,
+ * `image/vnd.ms-dds`, `image/x-ms-bmp`, `image/jp2`, or none at all for `.hdr`).
+ */
+export const UNDECODABLE_IMAGE_EXTENSIONS: readonly string[] = [
+  '.exr',
+  '.hdr',
+  '.tga',
+  '.dds',
+  '.bmp',
+  '.jp2',
+]
+
+/** Whether the file is an image format with no preview (see {@link UNDECODABLE_IMAGE_EXTENSIONS}). */
+export function isUndecodableImage(filename?: string | null): boolean {
+  const lowerFilename = filename?.toLowerCase() || ''
+  return UNDECODABLE_IMAGE_EXTENSIONS.some((ext) => lowerFilename.endsWith(ext))
+}
+
+/**
  * The preview proxy a file gets by default, before the team's text preview mode is
  * applied. Code and config files get none: they are never converted to PDF, even when
- * reported as `text/plain`, and are only previewed as original text in raw mode.
+ * reported as `text/plain`, and are only previewed as original text in raw mode. Image
+ * formats that cannot be decoded get none either, so their uploads are marked processed
+ * right away instead of starting a transcode that can only fail.
  */
 export function getProxyType(
   mediaType?: string | null,
@@ -188,6 +212,7 @@ export function getProxyType(
   const lowerMediaType = normalizeMediaType(mediaType)
   const lowerFilename = filename?.toLowerCase() || ''
 
+  if (isUndecodableImage(filename)) return null
   if (lowerMediaType.startsWith('image/') || lowerFilename.endsWith('.psd')) return 'image'
   if (lowerMediaType.startsWith('video/')) return 'video'
   if (lowerMediaType.startsWith('audio/')) return 'audio'

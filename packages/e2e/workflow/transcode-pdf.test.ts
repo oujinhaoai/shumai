@@ -7,6 +7,7 @@ import { s3Service } from '@shumai/core/src/s3/s3'
 import { fileURLToPath } from 'url'
 import * as path from 'path'
 import * as fs from 'fs'
+import { expectFailureRecorded, expectNotRunAgain } from './transcode-failure-helpers'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const transcodeWorkflowsPath = path.resolve(currentDir, '../../../apps/transcode/src/workflows.ts')
@@ -313,5 +314,92 @@ describe.each(['local', 'temporal'] as const)(
       expect(mediaInfo.sprite?.key).toContain('sprite.webp')
       expect(mediaInfo.frames).toBeGreaterThan(0)
     }, 50000)
+
+    const bucket = 'shumai-e2e-test-bucket-transcode'
+
+    /** A PDF asset whose upload never reached storage, so downloading it fails for good. */
+    async function seedMissingPdf(
+      name: string,
+      state: { status: AssetStatus; isDeleted: boolean } = {
+        status: AssetStatus.uploaded,
+        isDeleted: false,
+      },
+    ) {
+      const team = await prisma.team.create({ data: { name: `E2E PDF ${name}` } })
+      const project = await prisma.project.create({
+        data: { name: `E2E PDF ${name}`, teamId: team.id },
+      })
+      const key = `projects/e2e-pdf-failure/${mode}/${name}`
+      const storageKey = await prisma.storageKey.create({ data: { key } })
+      const asset = await prisma.asset.create({
+        data: {
+          name,
+          type: 'file',
+          mediaType: 'application/pdf',
+          projectId: project.id,
+          storageKeyId: storageKey.id,
+          ...state,
+        },
+      })
+      const createTask = () =>
+        prisma.workflowTask.create({
+          data: {
+            type: 'transcode_pdf',
+            status: 'pending',
+            assetId: asset.id,
+            projectId: project.id,
+            teamId: team.id,
+            payload: { projectId: project.id, transcode: { sprite: true, poster: true } },
+          },
+        })
+      return { asset, key, createTask }
+    }
+
+    it('should finish a failed PDF transcode instead of leaving the asset processing', async () => {
+      const { asset, key, createTask } = await seedMissingPdf('missing.pdf')
+      const task = await createTask()
+
+      await expect(workflowService.executeWait(task, 45000)).rejects.toThrow(
+        'Failed to download media to tmp',
+      )
+
+      await expectFailureRecorded({
+        assetId: asset.id,
+        taskId: task.id,
+        taskType: 'transcode_pdf',
+        message: /^Failed to download media to tmp: /,
+      })
+      await expectNotRunAgain(mode, task)
+
+      // Once the file is there, a later successful transcode drops the recorded failure.
+      const pdf = fs.readFileSync(path.join(fixturesDir, 'test.pdf'))
+      await s3Service.putObject(bucket, key, pdf, pdf.length, 'application/pdf')
+      const retry = await createTask()
+      expect((await workflowService.executeWait(retry, 45000)).status).toBe('completed')
+
+      const recovered = await prisma.asset.findUniqueOrThrow({ where: { id: asset.id } })
+      expect(recovered.status).toBe(AssetStatus.processed)
+      expect(recovered.media?.transcodeError).toBeUndefined()
+      expect(recovered.media?.proxyType).toBe('pdf')
+      expect(recovered.media?.pdfTranscode?.key).toBeTruthy()
+    }, 100000)
+
+    it('should leave an asset moved to the trash while its transcode was queued in the trash', async () => {
+      const { asset, createTask } = await seedMissingPdf('trashed.pdf', {
+        status: AssetStatus.trashed,
+        isDeleted: true,
+      })
+      const task = await createTask()
+
+      await expect(workflowService.executeWait(task, 45000)).rejects.toThrow(
+        'Failed to download media to tmp',
+      )
+
+      const after = await prisma.asset.findUniqueOrThrow({ where: { id: asset.id } })
+      expect(after.status).toBe(AssetStatus.trashed)
+      expect(after.isDeleted).toBe(true)
+      expect(after.media).toBeNull()
+      await expectNotRunAgain(mode, task)
+    }, 60000)
   },
 )

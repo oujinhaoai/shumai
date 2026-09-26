@@ -5,7 +5,7 @@ import {
   getWorkerQueueAndStartTask,
   fetchAssetWithKey,
   completeTask,
-  failTask,
+  finishFailedTranscode,
   cleanupTmpDir,
 } from './common'
 
@@ -117,8 +117,7 @@ export async function transcodePdfWorkflow(task: WorkflowTask): Promise<void> {
     await completeTask(workerQueue, task.id)
   } catch (err) {
     console.error(`transcodePdfWorkflow failed for task ${task.id}:`, err)
-    await failTask(workerQueue, task.id, err)
-    throw err
+    await finishFailedTranscode(workerQueue, task, err, 'transcode_pdf')
   } finally {
     await cleanupTmpDir(workerQueue, tmpDir)
   }

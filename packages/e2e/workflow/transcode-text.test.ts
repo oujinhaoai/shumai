@@ -7,6 +7,7 @@ import { s3Service } from '@shumai/core/src/s3/s3'
 import { uploadService } from '@shumai/core/src/upload/upload'
 import { fileURLToPath } from 'url'
 import * as path from 'path'
+import { expectFailureRecorded, expectNotRunAgain } from './transcode-failure-helpers'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const transcodeWorkflowsPath = path.resolve(currentDir, '../../../apps/transcode/src/workflows.ts')
@@ -315,5 +316,108 @@ describe.each(['local', 'temporal'] as const)(
       expect(updatedAsset?.status).toBe(AssetStatus.processed)
       expect(updatedAsset?.media).toBeNull()
     }, 50000)
+
+    /** A text asset whose upload never reached storage, so downloading it fails for good. */
+    async function seedMissingText(
+      name: string,
+      state: { status: AssetStatus; isDeleted: boolean } = {
+        status: AssetStatus.uploaded,
+        isDeleted: false,
+      },
+    ) {
+      const team = await prisma.team.create({ data: { name: `E2E Text Failure ${name}` } })
+      const project = await prisma.project.create({
+        data: { name: `E2E Text Failure ${name}`, teamId: team.id },
+      })
+      const key = `projects/e2e-text-failure/${mode}/${name}`
+      const storageKey = await prisma.storageKey.create({ data: { key } })
+      const asset = await prisma.asset.create({
+        data: {
+          name,
+          type: 'file',
+          mediaType: 'text/markdown',
+          projectId: project.id,
+          storageKeyId: storageKey.id,
+          ...state,
+        },
+      })
+      const createTask = () =>
+        prisma.workflowTask.create({
+          data: {
+            type: 'transcode_text',
+            status: 'pending',
+            assetId: asset.id,
+            projectId: project.id,
+            teamId: team.id,
+            payload: { projectId: project.id, transcode: {} },
+          },
+        })
+      return { asset, key, createTask }
+    }
+
+    async function failFirstAttempt(name: string) {
+      const seeded = await seedMissingText(name)
+      const task = await seeded.createTask()
+
+      await expect(workflowService.executeWait(task, 45000)).rejects.toThrow(
+        'Failed to download media to tmp',
+      )
+      await expectFailureRecorded({
+        assetId: seeded.asset.id,
+        taskId: task.id,
+        taskType: 'transcode_text',
+        message: /^Failed to download media to tmp: /,
+      })
+      await expectNotRunAgain(mode, task)
+      return seeded
+    }
+
+    it('should finish a failed text transcode and drop the failure once a later one succeeds', async () => {
+      const { asset, key, createTask } = await failFirstAttempt('late.md')
+
+      const markdown = Buffer.from('# Arrived later\n', 'utf-8')
+      await s3Service.putObject(bucket, key, markdown, markdown.length, 'text/markdown')
+      const retry = await createTask()
+      expect((await workflowService.executeWait(retry, 45000)).status).toBe('completed')
+
+      const recovered = await prisma.asset.findUniqueOrThrow({ where: { id: asset.id } })
+      expect(recovered.status).toBe(AssetStatus.processed)
+      expect(recovered.media?.transcodeError).toBeUndefined()
+      expect(recovered.media?.proxyType).toBe('text')
+      expect(recovered.media?.textTranscode?.lineCount).toBe(1)
+    }, 100000)
+
+    it('should drop an earlier failure when a later run finds binary data', async () => {
+      const { asset, key, createTask } = await failFirstAttempt('late-binary.md')
+
+      const binary = new Uint8Array([0x6f, 0x6b, 0x00, 0x01, 0x02])
+      await s3Service.putObject(bucket, key, binary, binary.length, 'text/markdown')
+      const retry = await createTask()
+      const completed = await workflowService.executeWait(retry, 45000)
+      expect(completed.status).toBe('completed')
+      expect(completed.output).toEqual({ skipped: 'binary' })
+
+      const after = await prisma.asset.findUniqueOrThrow({ where: { id: asset.id } })
+      expect(after.status).toBe(AssetStatus.processed)
+      expect(after.media?.transcodeError).toBeUndefined()
+    }, 100000)
+
+    it('should leave an asset moved to the trash while its transcode was queued in the trash', async () => {
+      const { asset, createTask } = await seedMissingText('trashed.md', {
+        status: AssetStatus.trashed,
+        isDeleted: true,
+      })
+      const task = await createTask()
+
+      await expect(workflowService.executeWait(task, 45000)).rejects.toThrow(
+        'Failed to download media to tmp',
+      )
+
+      const after = await prisma.asset.findUniqueOrThrow({ where: { id: asset.id } })
+      expect(after.status).toBe(AssetStatus.trashed)
+      expect(after.isDeleted).toBe(true)
+      expect(after.media).toBeNull()
+      await expectNotRunAgain(mode, task)
+    }, 60000)
   },
 )

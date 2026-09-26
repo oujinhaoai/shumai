@@ -15,6 +15,8 @@ const registry: FileTypeDefinition[] = [
 
 export function getViewerForFile(file: AssetInfo | null | undefined): FileTypeDefinition {
   if (!file) return defaultTypeDefinition
+  // A failed transcode leaves no usable preview, whatever proxy type the file has.
+  if (file.media?.transcodeError) return defaultTypeDefinition
   const match = registry.find((viewer) => viewer.match(file))
   return match || defaultTypeDefinition
 }

@@ -47,6 +47,12 @@ describe('transcodeTextWorkflow', () => {
     createAutofillTaskIfEnabledActivity: Object.assign(vi.fn(), {
       _activityName: 'createAutofillTaskIfEnabledActivity',
     }),
+    markAssetTranscodeFailedActivity: Object.assign(vi.fn(), {
+      _activityName: 'markAssetTranscodeFailedActivity',
+    }),
+    clearAssetTranscodeErrorActivity: Object.assign(vi.fn(), {
+      _activityName: 'clearAssetTranscodeErrorActivity',
+    }),
   }
 
   const task: WorkflowTask = {
@@ -231,6 +237,11 @@ describe('transcodeTextWorkflow', () => {
     expect(mockActivities.updateAssetMediaActivity).not.toHaveBeenCalled()
     expect(mockActivities.createEmbeddingTaskIfEnabledActivity).not.toHaveBeenCalled()
     expect(mockActivities.createAutofillTaskIfEnabledActivity).not.toHaveBeenCalled()
+    // No media is written on this path, so a failure left by an earlier run is dropped.
+    expect(mockActivities.clearAssetTranscodeErrorActivity).toHaveBeenCalledWith({
+      assetId: 'asset-text',
+    })
+    expect(mockActivities.markAssetTranscodeFailedActivity).not.toHaveBeenCalled()
     expect(mockActivities.updateAssetStatusActivity).toHaveBeenLastCalledWith({
       assetId: 'asset-text',
       status: AssetStatus.processed,
@@ -245,20 +256,67 @@ describe('transcodeTextWorkflow', () => {
     })
   })
 
-  it('should fail the task and clean up when the text proxy cannot be generated', async () => {
+  it('should fail the task, record the failure on the asset and clean up when the text proxy cannot be generated', async () => {
     mockActivities.generateTextProxyActivity.mockRejectedValue(new Error('decode failed'))
+    mockActivities.markAssetTranscodeFailedActivity.mockResolvedValue(true)
 
-    await expect(transcodeTextWorkflow(task)).rejects.toThrow('decode failed')
+    await expect(transcodeTextWorkflow(task)).resolves.toBeUndefined()
 
+    expect(mockActivities.markAssetTranscodeFailedActivity).toHaveBeenCalledWith({
+      assetId: 'asset-text',
+      taskType: 'transcode_text',
+      message: 'decode failed',
+    })
     expect(mockActivities.updateTaskStatusActivity).toHaveBeenLastCalledWith({
       taskId: 'task-text',
       status: 'failed',
       output: { error: 'decode failed' },
     })
+    expect(mockActivities.updateAssetStatusActivity).toHaveBeenCalledTimes(1)
+    expect(mockActivities.updateAssetStatusActivity).toHaveBeenCalledWith({
+      assetId: 'asset-text',
+      status: AssetStatus.processing,
+    })
+    expect(mockActivities.generateTextProxyActivity).toHaveBeenCalledTimes(1)
+    expect(mockActivities.clearAssetTranscodeErrorActivity).not.toHaveBeenCalled()
     expect(mockActivities.updateAssetMediaActivity).not.toHaveBeenCalled()
     expect(mockActivities.createAutofillTaskIfEnabledActivity).not.toHaveBeenCalled()
     expect(mockActivities.cleanupTmpDirActivity).toHaveBeenCalledWith({
       tmpDir: '/tmp/transcode-1',
+    })
+  })
+
+  it('should record a download failure the same way', async () => {
+    mockActivities.downloadMediaToTmpActivity.mockRejectedValue(
+      new Error('Failed to download media to tmp: NoSuchKey'),
+    )
+    mockActivities.markAssetTranscodeFailedActivity.mockResolvedValue(true)
+
+    await expect(transcodeTextWorkflow(task)).resolves.toBeUndefined()
+
+    expect(mockActivities.markAssetTranscodeFailedActivity).toHaveBeenCalledWith({
+      assetId: 'asset-text',
+      taskType: 'transcode_text',
+      message: 'Failed to download media to tmp: NoSuchKey',
+    })
+    expect(mockActivities.generateTextProxyActivity).not.toHaveBeenCalled()
+    expect(mockActivities.cleanupTmpDirActivity).not.toHaveBeenCalled()
+  })
+
+  it('should leave the asset to the guarded activity when it was trashed meanwhile', async () => {
+    mockActivities.generateTextProxyActivity.mockRejectedValue(new Error('decode failed'))
+    mockActivities.markAssetTranscodeFailedActivity.mockResolvedValue(false)
+
+    await expect(transcodeTextWorkflow(task)).resolves.toBeUndefined()
+
+    expect(mockActivities.updateAssetStatusActivity).not.toHaveBeenCalledWith({
+      assetId: 'asset-text',
+      status: AssetStatus.processed,
+    })
+    expect(mockActivities.updateTaskStatusActivity).toHaveBeenLastCalledWith({
+      taskId: 'task-text',
+      status: 'failed',
+      output: { error: 'decode failed' },
     })
   })
 })

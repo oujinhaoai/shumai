@@ -5,7 +5,7 @@ import {
   getWorkerQueueAndStartTask,
   fetchAssetWithKey,
   completeTask,
-  failTask,
+  finishFailedTranscode,
   cleanupTmpDir,
 } from './common'
 
@@ -25,6 +25,7 @@ export async function transcodeTextWorkflow(task: WorkflowTask): Promise<void> {
       updateAssetStatusActivity,
       getMediaInfoActivity,
       updateAssetMediaActivity,
+      clearAssetTranscodeErrorActivity,
       downloadMediaToTmpActivity,
       generateTextProxyActivity,
       createEmbeddingTaskIfEnabledActivity,
@@ -53,7 +54,9 @@ export async function transcodeTextWorkflow(task: WorkflowTask): Promise<void> {
 
     if ('binary' in textProxy) {
       // Binary data has no text preview: finish like any file without a preview
-      // rather than failing, which would leave the asset stuck in processing.
+      // rather than as a failed transcode. No media is written, so drop any failure
+      // an earlier run recorded.
+      await executeActivity(workerQueue, clearAssetTranscodeErrorActivity, { assetId: asset.id })
       await executeActivity(workerQueue, updateAssetStatusActivity, {
         assetId: asset.id,
         status: 'processed',
@@ -107,8 +110,7 @@ export async function transcodeTextWorkflow(task: WorkflowTask): Promise<void> {
     await completeTask(workerQueue, task.id)
   } catch (err) {
     console.error(`transcodeTextWorkflow failed for task ${task.id}:`, err)
-    await failTask(workerQueue, task.id, err)
-    throw err
+    await finishFailedTranscode(workerQueue, task, err, 'transcode_text')
   } finally {
     await cleanupTmpDir(workerQueue, tmpDir)
   }

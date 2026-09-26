@@ -19,8 +19,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **i18n**: Fix the "Preview unavailable" message and the Download button in the file viewer and version comparison always appearing in English instead of your selected language
 - **transcode**: Fix files whose type includes extra details, such as `text/plain; charset=utf-8` from some upload tools, not being recognized as the Markdown, text, CSV, HTML, PDF or Office files they are, which left them without the right preview
 - **transcode**: Fix text files that actually contain binary data being shown as garbled text in the original text preview; they now finish processing without a preview instead
+- **transcode**: Fix files staying in "processing" forever when their preview could not be generated, such as a 32-bit EXR image. They now finish processing without a preview, and the viewer shows "Preview unavailable" with the reason. Files already stuck this way are repaired the next time the server starts
 
 ### Changed
+
+- **transcode**: EXR, HDR, TGA, DDS, BMP and JPEG 2000 (.jp2) images are no longer sent for preview generation, which could never succeed for them. They finish processing right away without a preview and can still be downloaded
 
 - **transcode**: With the default "Convert to PDF" text preview, code and config files such as .log, .ini and .conf are no longer converted to PDF when the browser reports them as plain text, so every code and config file is handled the same way; switch to "Original text" to preview them with line numbers
 - **transcode**: Optimize video sprite generation for large and long videos using a concurrent fast-seek pool and image compositing, avoiding full-video decoding while preserving instant single-pass generation for short clips

@@ -114,6 +114,35 @@ describe('file api', () => {
     })
   })
 
+  it('GET /files/:fileId returns the reason of a failed transcode in media', async () => {
+    const transcodeError = {
+      taskType: 'transcode_image',
+      message: 'Failed to get media info: Input file contains unsupported image format',
+      failedAt: '2026-09-25T08:00:00.000Z',
+    }
+    vi.mocked(assetService.getAsset).mockResolvedValue({
+      id: 'exr-id',
+      name: 'render.exr',
+      sizeByte: 38024,
+      fileCount: 1,
+      type: 'file',
+      status: 'processed',
+      proxyType: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      media: { original: { key: 'projects/p/render.exr' }, transcodeError },
+    })
+
+    const app = new Hono().use('*', authMiddleware).route('/', fileRoute)
+    const res = await app.request('/files/exr-id')
+
+    expect(res.status).toBe(200)
+    const json = await res.json()
+    expect(json.status).toBe('processed')
+    expect(json.media?.transcodeError).toEqual(transcodeError)
+    expect(assetService.getAsset).toHaveBeenCalledWith({ assetId: 'exr-id' })
+  })
+
   it('PUT /files/:fileId', async () => {
     vi.mocked(assetService.updateAssetName).mockResolvedValue({
       id: 'test-id',

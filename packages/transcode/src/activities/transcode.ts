@@ -6,6 +6,7 @@ import {
   type HdrType,
 } from '@shumai/core/src/transcode/transcode'
 import { metadataService } from '@shumai/core/src/metadata/metadata'
+import { transcodeFailureService } from '@shumai/core/src/transcode/transcode-failure'
 import { getDerivedArtifactDirectory, stemFromKey } from '@shumai/core/src/utils/filename'
 import { countTextLines, readTextFileHead } from '@shumai/core/src/utils/text-file'
 import { gotenbergService } from '@shumai/core/src/gotenberg/gotenberg'
@@ -921,6 +922,37 @@ export async function updateAssetMediaActivity(params: UpdateAssetMediaActivityP
       '[updateAssetMediaActivity] Asset was deleted or pending purge before media update completed',
     )
   }
+}
+
+export interface MarkAssetTranscodeFailedActivityParams {
+  assetId: string
+  /** Type of the workflow task whose final attempt failed. */
+  taskType: string
+  /** Failure reason; cut to 500 characters. */
+  message: string
+}
+
+/**
+ * Records a transcode that failed for good on its asset: an asset still `processing`
+ * becomes `processed` with the reason in `media.transcodeError`. Assets in any other
+ * state (moved to the trash or being purged meanwhile) are left as they are.
+ */
+export async function markAssetTranscodeFailedActivity(
+  params: MarkAssetTranscodeFailedActivityParams,
+): Promise<boolean> {
+  const updated = await transcodeFailureService.markAssetTranscodeFailed(params)
+  if (!updated) {
+    logger.info(
+      { assetId: params.assetId, taskType: params.taskType },
+      '[markAssetTranscodeFailedActivity] Asset is no longer processing, leaving its status as is',
+    )
+  }
+  return updated
+}
+
+/** Drops a failure recorded on the asset by an earlier transcode. */
+export async function clearAssetTranscodeErrorActivity(params: { assetId: string }): Promise<void> {
+  await transcodeFailureService.clearTranscodeError(params.assetId)
 }
 
 export async function takeScreenshotsActivity(params: {
